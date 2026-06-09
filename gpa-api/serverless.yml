@@ -1,0 +1,52 @@
+# Despliegue opcional con Serverless Framework: Lambda + API Gateway (HTTP API).
+# Alternativas: AWS SAM, CDK, o un contenedor en App Runner/ECS usando src/server.js.
+#
+#   npm i -g serverless
+#   serverless deploy --stage production
+#
+# Tras desplegar, copia la URL del endpoint a la variable API_BASE del frontend.
+
+service: gpa-api
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ${env:AWS_REGION, 'us-east-1'}
+  stage: ${opt:stage, 'production'}
+  memorySize: 512
+  timeout: 29
+  environment:
+    NODE_ENV: production
+    CORS_ORIGINS: ${env:CORS_ORIGINS}
+    JWT_SECRET: ${env:JWT_SECRET}
+    JWT_EXPIRES: ${env:JWT_EXPIRES, '8h'}
+    COOKIE_NAME: ${env:COOKIE_NAME, 'gpa_token'}
+    COOKIE_DOMAIN: ${env:COOKIE_DOMAIN, ''}
+    DATABASE_URL: ${env:DATABASE_URL}
+    SAP_SERVICE_LAYER_URL: ${env:SAP_SERVICE_LAYER_URL, ''}
+    SAP_COMPANY_DB: ${env:SAP_COMPANY_DB, ''}
+    SAP_USER: ${env:SAP_USER, ''}
+    SAP_PASSWORD: ${env:SAP_PASSWORD, ''}
+    S3_BUCKET: ${env:S3_BUCKET}
+    S3_PRESIGN_EXPIRES: ${env:S3_PRESIGN_EXPIRES, '300'}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+          Resource: 'arn:aws:s3:::${env:S3_BUCKET}/*'
+
+functions:
+  api:
+    handler: src/lambda.handler
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: '*'
+      - httpApi:
+          path: /
+          method: '*'

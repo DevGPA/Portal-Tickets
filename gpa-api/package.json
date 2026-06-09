@@ -1,0 +1,30 @@
+{
+  "name": "gpa-api",
+  "version": "1.0.0",
+  "description": "Backend del Portal de Postventa GPA — API Gateway + Lambda (Express). Auth JWT, integración SAP y gestión de tickets/evidencias en S3.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "lint": "echo \"(configurar eslint si se desea)\" && exit 0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "axios": "^1.7.2",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.0",
+    "pg": "^8.12.0",
+    "serverless-http": "^3.2.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
