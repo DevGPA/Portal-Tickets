@@ -1,0 +1,363 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  GPA Postventa — Infraestructura serverless completa.
+  API Gateway + Lambda (auth, tickets, upload, sap) + Aurora Serverless v2 + S3.
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PARÁMETROS
+# ══════════════════════════════════════════════════════════════════════════════
+Parameters:
+
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [production, staging, development]
+
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    Description: Clave secreta JWT (mínimo 32 caracteres random)
+
+  DbPassword:
+    Type: String
+    NoEcho: true
+    Description: Contraseña master de Aurora PostgreSQL
+
+  SapServiceLayerUrl:
+    Type: String
+    Description: URL pública de SAP B1 Service Layer. Ej: https://sap.gpa.com.mx/b1s/v1
+
+  SapCompanyDb:
+    Type: String
+    Description: Nombre de la empresa en SAP B1
+
+  SapUser:
+    Type: String
+    NoEcho: true
+
+  SapPassword:
+    Type: String
+    NoEcho: true
+
+  SmtpHost:
+    Type: String
+    Description: Host SMTP de GPA. Ej: mail.gpa.com.mx
+
+  SmtpPort:
+    Type: String
+    Default: '587'
+
+  SmtpUser:
+    Type: String
+
+  SmtpPassword:
+    Type: String
+    NoEcho: true
+
+  EmailPostventa:
+    Type: String
+    Description: Correo interno de Postventa para notificaciones
+
+  CorsOrigin:
+    Type: String
+    Description: URL del portal frontend. Ej: https://postventa-gpa.com
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GLOBALS — aplican a todas las funciones Lambda
+# ══════════════════════════════════════════════════════════════════════════════
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 256
+    Layers:
+      - !Ref DependenciesLayer
+    Environment:
+      Variables:
+        NODE_ENV:           !Ref Environment
+        JWT_SECRET:         !Ref JwtSecret
+        CORS_ORIGIN:        !Ref CorsOrigin
+        S3_BUCKET:          !Ref ArchivosBucket
+        AWS_ACCOUNT_REGION: !Ref AWS::Region
+        DB_HOST:            !GetAtt AuroraCluster.Endpoint.Address
+        DB_PORT:            '5432'
+        DB_NAME:            gpa_postventa
+        DB_USER:            gpa_admin
+        DB_PASSWORD:        !Ref DbPassword
+        SAP_LAMBDA_NAME:    !Ref SapFunction
+        EMAIL_FROM:         !Sub "GPA Postventa <${SmtpUser}>"
+        EMAIL_POSTVENTA:    !Ref EmailPostventa
+        SMTP_HOST:          !Ref SmtpHost
+        SMTP_PORT:          !Ref SmtpPort
+        SMTP_USER:          !Ref SmtpUser
+        SMTP_PASSWORD:      !Ref SmtpPassword
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RECURSOS
+# ══════════════════════════════════════════════════════════════════════════════
+Resources:
+
+  # ── API Gateway ─────────────────────────────────────────────────────────────
+  GpaApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub gpa-postventa-api-${Environment}
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Cookie,Authorization'"
+        AllowOrigin: !Sub "'${CorsOrigin}'"
+        AllowCredentials: true
+      Auth:
+        DefaultAuthorizer: NONE   # auth manejada en cada Lambda con JWT
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
+              Access-Control-Allow-Credentials: "'true'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
+              Access-Control-Allow-Credentials: "'true'"
+
+  # ── Layer de dependencias compartidas ────────────────────────────────────────
+  # bcrypt, jsonwebtoken, pg, nodemailer, node-fetch, uuid, @aws-sdk/*
+  # Se construye con sam build y se sube automáticamente.
+  DependenciesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub gpa-dependencies-${Environment}
+      Description: Dependencias npm compartidas entre todas las funciones
+      ContentUri: layers/
+      CompatibleRuntimes:
+        - nodejs20.x
+    Metadata:
+      BuildMethod: nodejs20.x
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # FUNCIONES LAMBDA
+  # ──────────────────────────────────────────────────────────────────────────
+
+  # ── Auth: login, logout, me ──────────────────────────────────────────────────
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub gpa-auth-${Environment}
+      CodeUri: functions/auth/
+      Handler: index.handler
+      Description: Login / logout / me — JWT en cookie HttpOnly
+      Events:
+        Login:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /auth/login
+            Method: POST
+        Logout:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /auth/logout
+            Method: POST
+        Me:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /auth/me
+            Method: GET
+
+  # ── Tickets: crear, listar, detalle ─────────────────────────────────────────
+  TicketsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub gpa-tickets-${Environment}
+      CodeUri: functions/tickets/
+      Handler: index.handler
+      Description: CRUD de tickets de postventa
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SapFunction
+      Events:
+        CreateTicket:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /tickets
+            Method: POST
+        ListTickets:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /tickets
+            Method: GET
+        GetTicket:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /tickets/{id}
+            Method: GET
+        GetEvidenciaUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /tickets/{id}/evidencias/{key}/url
+            Method: GET
+
+  # ── Upload: presigned URL + confirmar subida ─────────────────────────────────
+  UploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub gpa-upload-${Environment}
+      CodeUri: functions/upload/
+      Handler: index.handler
+      Description: Genera URLs prefirmadas de S3 y confirma subidas
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref ArchivosBucket
+      Events:
+        PresignedUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /upload/presigned-url
+            Method: POST
+        ConfirmUpload:
+          Type: Api
+          Properties:
+            RestApiId: !Ref GpaApi
+            Path: /upload/confirm
+            Method: POST
+
+  # ── SAP: puente con SAP B1 Service Layer ────────────────────────────────────
+  SapFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub gpa-sap-${Environment}
+      CodeUri: functions/sap/
+      Handler: index.handler
+      Description: Puente con SAP B1 Service Layer (invocación directa, sin API Gateway)
+      Timeout: 30
+      # Sin Events — esta Lambda no está expuesta en API Gateway.
+      # Solo la invoca TicketsFunction directamente vía AWS SDK.
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # S3 — Bucket de archivos (evidencias)
+  # ──────────────────────────────────────────────────────────────────────────
+  ArchivosBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub gpa-postventa-archivos-${Environment}-${AWS::AccountId}
+      # Acceso completamente privado — archivos solo accesibles con URLs firmadas
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls:       true
+        BlockPublicPolicy:     true
+        IgnorePublicAcls:      true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ArchivarAGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 365
+                StorageClass: GLACIER
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT]
+            AllowedOrigins:
+              - !Ref CorsOrigin
+            MaxAge: 3600
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Aurora Serverless v2 — PostgreSQL compatible
+  # ──────────────────────────────────────────────────────────────────────────
+
+  # Subnet group — Aurora necesita al menos 2 AZs
+  AuroraSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets para Aurora GPA Postventa
+      SubnetIds:
+        # REEMPLAZAR con IDs reales de subnets en tu VPC
+        # Las Lambdas NO están en VPC (acceden a Aurora vía endpoint público)
+        # Aurora tiene acceso público habilitado + security group restrictivo
+        - subnet-XXXXXXXX
+        - subnet-YYYYYYYY
+
+  # Security Group — solo acepta conexiones desde las IPs de Lambda (o abierto con SSL)
+  AuroraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Aurora GPA Postventa — acceso PostgreSQL
+      VpcId: vpc-XXXXXXXX   # REEMPLAZAR con tu VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0   # Restringir a rangos de IP de Lambda si es posible
+
+  # Cluster Aurora Serverless v2
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      DBClusterIdentifier: !Sub gpa-postventa-${Environment}
+      Engine:              aurora-postgresql
+      EngineVersion:       '15.4'
+      EngineMode:          provisioned   # Serverless v2 usa modo "provisioned" con capacidad escalable
+      DatabaseName:        gpa_postventa
+      MasterUsername:      gpa_admin
+      MasterUserPassword:  !Ref DbPassword
+      DBSubnetGroupName:   !Ref AuroraSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref AuroraSecurityGroup
+      PubliclyAccessible:  true         # true para que Lambdas fuera de VPC se conecten
+      EnableIAMDatabaseAuthentication: false
+      BackupRetentionPeriod: 7
+      DeletionProtection:  true
+      StorageEncrypted:    true
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5   # Se apaga si no hay tráfico (costo mínimo)
+        MaxCapacity: 4     # Escala hasta 4 ACUs — suficiente para este volumen
+
+  # Instancia dentro del cluster (Serverless v2 requiere al menos una instancia)
+  AuroraInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceIdentifier: !Sub gpa-postventa-instance-${Environment}
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: true
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OUTPUTS — valores útiles post-deploy
+# ══════════════════════════════════════════════════════════════════════════════
+Outputs:
+
+  ApiUrl:
+    Description: URL base del API Gateway — pegar en el frontend como API_BASE_URL
+    Value: !Sub https://${GpaApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: !Sub GpaPostventaApiUrl-${Environment}
+
+  S3BucketName:
+    Description: Nombre del bucket S3 de archivos
+    Value: !Ref ArchivosBucket
+
+  AuroraEndpoint:
+    Description: Endpoint de Aurora — usar en DATABASE_URL de migraciones
+    Value: !GetAtt AuroraCluster.Endpoint.Address
+
+  SapFunctionArn:
+    Description: ARN de la Lambda SAP (para invocarla directamente)
+    Value: !GetAtt SapFunction.Arn
