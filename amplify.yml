@@ -1,0 +1,19 @@
+version: 1
+
+frontend:
+  phases:
+    build:
+      commands:
+        # No hay compilación — el portal es un HTML autocontenido.
+        # Este comando solo confirma que el archivo existe.
+        - echo "GPA Postventa — build OK"
+        - ls -lh index.html
+
+  artifacts:
+    # Carpeta que Amplify publica. Como todo está en la raíz, usamos "."
+    baseDirectory: .
+    files:
+      - index.html
+
+  cache:
+    paths: []

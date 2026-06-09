@@ -1,0 +1,31 @@
+customHeaders:
+  - pattern: '**/*'
+    headers:
+      # Seguridad básica
+      - key: Strict-Transport-Security
+        value: max-age=31536000; includeSubDomains
+      - key: X-Content-Type-Options
+        value: nosniff
+      - key: X-Frame-Options
+        value: DENY
+      - key: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      # Permitir cookies HttpOnly desde el API Gateway (necesario para JWT)
+      - key: Access-Control-Allow-Credentials
+        value: 'true'
+
+  # Cache agresivo para assets (si en el futuro se agregan imágenes/CSS separados)
+  - pattern: '*.jpg'
+    headers:
+      - key: Cache-Control
+        value: public, max-age=31536000, immutable
+  - pattern: '*.png'
+    headers:
+      - key: Cache-Control
+        value: public, max-age=31536000, immutable
+
+  # Sin cache para el index.html — siempre servir la versión más reciente
+  - pattern: index.html
+    headers:
+      - key: Cache-Control
+        value: no-cache, no-store, must-revalidate
