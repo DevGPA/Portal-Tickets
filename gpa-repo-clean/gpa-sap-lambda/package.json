@@ -1,9 +1,0 @@
-{
-  "name": "gpa-sap-lambda",
-  "version": "1.0.0",
-  "description": "Lambda — puente entre backend GPA y SAP B1 Service Layer (URL pública)",
-  "main": "src/handler.js",
-  "dependencies": {
-    "node-fetch": "^2.7.0"
-  }
-}
