@@ -17,14 +17,15 @@ provider:
   stage: ${opt:stage, 'production'}
   memorySize: 512
   timeout: 29
-  # VPC: la Lambda alcanza RDS por red privada y S3 por el gateway endpoint.
+  # VPC: la Lambda corre en subredes privadas con salida a internet por NAT
+  # Gateway (para alcanzar el Service Layer de SAP), RDS por red privada, y
+  # S3 + Secrets Manager por sus VPC endpoints.
   vpc:
     securityGroupIds:
       - sg-0b2a252911aac2dab
     subnetIds:
-      - subnet-57c2e431
-      - subnet-2d619761
-      - subnet-cbf19bfa
+      - subnet-0734932e200243119
+      - subnet-025d5a97fb2d1c02e
   environment:
     NODE_ENV: production
     CORS_ORIGINS: ${env:CORS_ORIGINS}
