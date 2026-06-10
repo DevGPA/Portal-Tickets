@@ -13,6 +13,11 @@ async function verifyPassword(plain, hash) {
   return bcrypt.compare(plain, hash);
 }
 
+// Genera el hash bcrypt para almacenar una contraseña nueva.
+function hashPassword(plain) {
+  return bcrypt.hashSync(plain, 10);
+}
+
 // Firma el JWT que viajará en la cookie HttpOnly.
 function signToken(user) {
   return jwt.sign(
@@ -49,4 +54,4 @@ function publicUser(user) {
   };
 }
 
-module.exports = { verifyPassword, signToken, cookieOptions, publicUser };
+module.exports = { verifyPassword, hashPassword, signToken, cookieOptions, publicUser };

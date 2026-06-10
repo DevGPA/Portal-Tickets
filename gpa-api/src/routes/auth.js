@@ -46,6 +46,28 @@ router.post('/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+// POST /auth/change-password  { currentPassword, newPassword } -> { ok }
+// Requiere sesión: verifica la contraseña actual y actualiza el hash.
+router.post(
+  '/change-password',
+  requireAuth,
+  asyncH(async (req, res) => {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Faltan datos.' });
+    }
+    if (String(newPassword).length < 8) {
+      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres.' });
+    }
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user || !(await authSvc.verifyPassword(currentPassword, user.password_hash))) {
+      return res.status(401).json({ error: 'La contraseña actual es incorrecta.' });
+    }
+    await db.updatePassword(user.email, authSvc.hashPassword(newPassword));
+    return res.json({ ok: true });
+  })
+);
+
 // POST /auth/recover  { email } -> 200 siempre (no revela si el correo existe)
 router.post(
   '/recover',

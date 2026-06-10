@@ -162,10 +162,20 @@ async function createTicket(ticket, evidencias) {
   return { id, folio_sap: folio };
 }
 
+async function updatePassword(email, newHash) {
+  if (pool) {
+    await pool.query('UPDATE usuarios SET password_hash = $1 WHERE email = $2', [newHash, email]);
+    return;
+  }
+  const u = memUsers.find((x) => x.email === email);
+  if (u) u.password_hash = newHash;
+}
+
 module.exports = {
   pool,
   getUserByEmail,
   listTickets,
   getTicketById,
   createTicket,
+  updatePassword,
 };
