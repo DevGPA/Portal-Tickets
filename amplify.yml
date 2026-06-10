@@ -8,8 +8,8 @@ frontend:
         # Genera config.js con la URL del backend desde la variable de entorno
         # API_BASE (configurarla en Amplify Console → Environment variables).
         # Si no se define, queda vacío y el portal corre en modo DEMO.
-        - echo "window.GPA_CONFIG = { API_BASE: '${API_BASE}' };" > config.js
-        - echo "GPA Postventa — build OK (API_BASE=${API_BASE:-<vacío: modo demo>})"
+        - "echo \"window.GPA_CONFIG = { API_BASE: '${API_BASE}' };\" > config.js"
+        - "echo GPA Postventa build OK - API_BASE=${API_BASE}"
         - ls -lh index.html config.js
 
   artifacts:
