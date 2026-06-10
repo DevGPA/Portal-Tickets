@@ -28,11 +28,12 @@ provider:
   environment:
     NODE_ENV: production
     CORS_ORIGINS: ${env:CORS_ORIGINS}
-    JWT_SECRET: ${env:JWT_SECRET}
+    # JWT_SECRET y DATABASE_URL ya NO van en texto plano: la Lambda los carga
+    # desde Secrets Manager (SECRETS_ID) en el cold start. Ver src/lambda.js.
+    SECRETS_ID: ${env:SECRETS_ID}
     JWT_EXPIRES: ${env:JWT_EXPIRES, '8h'}
     COOKIE_NAME: ${env:COOKIE_NAME, 'gpa_token'}
     COOKIE_DOMAIN: ${env:COOKIE_DOMAIN, ''}
-    DATABASE_URL: ${env:DATABASE_URL}
     SAP_SERVICE_LAYER_URL: ${env:SAP_SERVICE_LAYER_URL, ''}
     SAP_COMPANY_DB: ${env:SAP_COMPANY_DB, ''}
     SAP_USER: ${env:SAP_USER, ''}
@@ -47,6 +48,10 @@ provider:
             - s3:GetObject
             - s3:PutObject
           Resource: 'arn:aws:s3:::${env:S3_BUCKET}/*'
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: ${env:SECRET_ARN}
 
 functions:
   api:
