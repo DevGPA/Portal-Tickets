@@ -17,6 +17,14 @@ provider:
   stage: ${opt:stage, 'production'}
   memorySize: 512
   timeout: 29
+  # VPC: la Lambda alcanza RDS por red privada y S3 por el gateway endpoint.
+  vpc:
+    securityGroupIds:
+      - sg-0b2a252911aac2dab
+    subnetIds:
+      - subnet-57c2e431
+      - subnet-2d619761
+      - subnet-cbf19bfa
   environment:
     NODE_ENV: production
     CORS_ORIGINS: ${env:CORS_ORIGINS}
