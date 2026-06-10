@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS usuarios (
   creado_en       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Secuencia para el folio de ticket (GPA-<año>-NNNNN). Persistente entre
+-- ejecuciones de la Lambda (a diferencia de un contador en memoria).
+CREATE SEQUENCE IF NOT EXISTS gpa_folio_seq START 200;
+
 CREATE TABLE IF NOT EXISTS tickets (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   folio_sap            TEXT UNIQUE,

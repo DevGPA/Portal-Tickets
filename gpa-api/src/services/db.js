@@ -126,16 +126,18 @@ async function getTicketById({ id, sapClienteId }) {
 }
 
 async function createTicket(ticket, evidencias) {
-  const folio = `GPA-2026-${String(seqFolio++).padStart(5, '0')}`;
   if (pool) {
+    // El folio se genera con una secuencia en la BD (única y persistente entre
+    // cold starts), no con un contador en memoria. Formato: GPA-<año>-NNNNN.
     // TODO(prod): envolver en transacción; insertar ticket + evidencias.
     const { rows } = await pool.query(
       `INSERT INTO tickets (folio_sap, tipo_ticket, familia, numero_factura, codigo_producto,
                             numero_serie, descripcion, sap_status, sap_cliente_id, creado_en)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'Abierto',$8, now())
+       VALUES ('GPA-' || to_char(now(),'YYYY') || '-' || lpad(nextval('gpa_folio_seq')::text, 5, '0'),
+               $1,$2,$3,$4,$5,$6,'Abierto',$7, now())
        RETURNING id, folio_sap`,
       [
-        folio, ticket.tipo_ticket, ticket.familia, ticket.numero_factura,
+        ticket.tipo_ticket, ticket.familia, ticket.numero_factura,
         ticket.codigo_producto, ticket.numero_serie, ticket.descripcion, ticket.sap_cliente_id,
       ]
     );
@@ -150,6 +152,7 @@ async function createTicket(ticket, evidencias) {
     return created;
   }
 
+  const folio = `GPA-2026-${String(seqFolio++).padStart(5, '0')}`;
   const id = `mem-${seqFolio}`;
   const row = {
     id, folio_sap: folio, sap_status: 'Abierto',
