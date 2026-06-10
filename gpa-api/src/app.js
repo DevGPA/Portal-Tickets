@@ -22,7 +22,9 @@ app.use(
     origin(origin, cb) {
       // Permitir herramientas sin Origin (curl, health checks) y orígenes whitelisteados.
       if (!origin || config.corsOrigins.includes(origin)) return cb(null, true);
-      return cb(new Error(`Origen no permitido por CORS: ${origin}`));
+      // Origen no permitido: no setear headers CORS (el navegador lo bloquea)
+      // sin generar un error 500 en los logs.
+      return cb(null, false);
     },
     credentials: true,
   })
