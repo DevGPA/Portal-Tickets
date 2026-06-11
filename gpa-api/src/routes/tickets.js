@@ -4,6 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const db = require('../services/db');
 const s3 = require('../services/s3');
+const sap = require('../services/sapClient');
 const { requireAuth } = require('../middleware/auth');
 const { asyncH } = require('../middleware/errorHandler');
 
@@ -142,8 +143,38 @@ router.post(
       evidencias
     );
 
-    // TODO(prod): crear también el ticket/servicio en SAP y notificar a Postventa (SES).
-    res.status(201).json({ id: created.id, folio_sap: created.folio_sap });
+    // Crear el Service Call en SAP B1 (best-effort: el ticket ya quedó en RDS/S3).
+    // Si SAP rechaza (p. ej. cliente inactivo), se registra el error pero no se
+    // pierde el ticket; Postventa puede reintentar la sincronización.
+    let sapServiceCallId = null;
+    let sapError = null;
+    if (sap.sapEnabled) {
+      try {
+        const sc = await sap.crearServiceCall({
+          cardCode: req.user.sap_cliente_id,
+          tipoTicket: b.tipo_ticket,
+          itemCode: b.codigo_producto,
+          folio: created.folio_sap,
+          descripcion: b.descripcion,
+          numeroFactura: b.numero_factura,
+          piezas: b.cantidad,
+        });
+        sapServiceCallId = sc.serviceCallId;
+      } catch (e) {
+        sapError = e.message;
+        // eslint-disable-next-line no-console
+        console.error(`[tickets] ${created.folio_sap}: fallo al crear Service Call en SAP:`, e.message);
+      }
+      await db.setSapServiceCall(created.id, { serviceCallId: sapServiceCallId, error: sapError });
+    }
+
+    // TODO(prod): notificar a Postventa (SES).
+    res.status(201).json({
+      id: created.id,
+      folio_sap: created.folio_sap,
+      sap_service_call_id: sapServiceCallId,
+      sap_sync_error: sapError,
+    });
   })
 );
 

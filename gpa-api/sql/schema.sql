@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   sap_resolution       TEXT,
   documentos_liberados JSONB DEFAULT '[]'::jsonb,   -- [{nombre,key,fecha}]
   sap_cliente_id       TEXT NOT NULL,
+  sap_service_call_id  INTEGER,                     -- ServiceCallID creado en SAP B1
+  sap_sync_error       TEXT,                        -- error si falló la creación en SAP
   creado_en            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -78,6 +78,56 @@ async function slGet(path) {
   }
 }
 
+// POST autenticado con re-login automático si la sesión expiró (401).
+async function slPost(path, body) {
+  if (!sessionCookie) await login();
+  try {
+    return await sapHttp.post(path, body, { headers: { Cookie: sessionCookie } });
+  } catch (e) {
+    if (e.response && e.response.status === 401) {
+      await login();
+      return sapHttp.post(path, body, { headers: { Cookie: sessionCookie } });
+    }
+    throw e;
+  }
+}
+
+// Mapeo tipo de ticket del portal → CallTypeID de SAP B1.
+const CALLTYPE_MAP = { gar: 2 /* GARANTIA */, dev: 3 /* DEVOLUCION */, at: 21 /* APOYO TECNICO */ };
+const SC_ORIGIN_WEB = -1;
+const SC_ASSIGNEE = 100; // usuario Postventa (FactGdl1)
+
+/**
+ * Crea un Service Call en SAP B1 para el ticket del portal.
+ * Lanza error si SAP rechaza (p. ej. cliente inactivo, artículo faltante).
+ * @returns {Promise<{serviceCallId:number, docNum:number}>}
+ */
+async function crearServiceCall({ cardCode, tipoTicket, itemCode, folio, descripcion, numeroFactura, piezas }) {
+  const subject = `[Portal ${folio}] ${descripcion || 'Solicitud de postventa'}`.slice(0, 100);
+  const body = {
+    Subject: subject,
+    CustomerCode: cardCode,
+    CallType: CALLTYPE_MAP[tipoTicket] || 5, // 5 = OTROS (fallback)
+    Origin: SC_ORIGIN_WEB,
+    AssigneeCode: SC_ASSIGNEE,
+    ItemCode: itemCode || undefined, // obligatorio por regla SysGPA-191-02
+    CustomerRefNo: folio, // referencia cruzada al folio del portal
+    Description: descripcion || subject,
+    U_TicketUsr: 'CLIENTE', // UDF obligatorio "Usuario Ticket"
+  };
+  if (numeroFactura) body.U_Factura = String(numeroFactura);
+  if (piezas) body.U_Piezas = Number(piezas) || 1;
+
+  try {
+    const res = await slPost('/ServiceCalls', body);
+    return { serviceCallId: res.data.ServiceCallID, docNum: res.data.DocNum };
+  } catch (e) {
+    // Extraer el mensaje de negocio de SAP (p. ej. "Customer ... is inactive").
+    const sapMsg = e.response?.data?.error?.message?.value;
+    throw new Error(sapMsg || e.message);
+  }
+}
+
 /**
  * Busca facturas (Invoices) de un cliente cuyo DocNum contenga `query`.
  * @returns {Promise<Array<{docNum,fecha,total,moneda}>>}
@@ -130,4 +180,4 @@ async function articulosDeFactura({ cardCode, docNum }) {
   }));
 }
 
-module.exports = { buscarFacturas, articulosDeFactura, sapEnabled };
+module.exports = { buscarFacturas, articulosDeFactura, crearServiceCall, sapEnabled };

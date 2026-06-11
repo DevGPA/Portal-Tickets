@@ -162,6 +162,16 @@ async function createTicket(ticket, evidencias) {
   return { id, folio_sap: folio };
 }
 
+// Guarda el resultado de la sincronización con SAP (ServiceCallID o el error).
+async function setSapServiceCall(ticketId, { serviceCallId = null, error = null }) {
+  if (pool) {
+    await pool.query('UPDATE tickets SET sap_service_call_id = $1, sap_sync_error = $2 WHERE id = $3', [serviceCallId, error, ticketId]);
+    return;
+  }
+  const t = memTickets.find((x) => x.id === ticketId);
+  if (t) { t.sap_service_call_id = serviceCallId; t.sap_sync_error = error; }
+}
+
 async function updatePassword(email, newHash) {
   if (pool) {
     await pool.query('UPDATE usuarios SET password_hash = $1 WHERE email = $2', [newHash, email]);
@@ -177,5 +187,6 @@ module.exports = {
   listTickets,
   getTicketById,
   createTicket,
+  setSapServiceCall,
   updatePassword,
 };
