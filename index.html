@@ -887,16 +887,17 @@ function renderStep4(){
 // Envía el ticket al backend (POST /tickets) o, sin backend, simula el envío (demo).
 async function enviarTicket(btn){
   const evs=getEvidencias();
-  const evidenciasMeta=[];
-  const archivos=[]; // {campo, file}
+  const evidencias=[]; // [{nombre,tipo_requerimiento,justificacion,texto_libre,archivos_s3:[]}]
+  const subidas=[];    // {evIndex, campo, file}
   evs.forEach((ev,idx)=>{
     const up=state.uploads[idx]||{};
-    const meta={nombre:ev.nombre,tipo_requerimiento:ev[state.tipo]||"O",campoArchivo:"ev_"+idx};
+    const meta={nombre:ev.nombre,tipo_requerimiento:ev[state.tipo]||"O",archivos_s3:[]};
     if(ev.tipo==="text"||ev.tipo==="textarea"){if(up.text)meta.texto_libre=up.text;}
     else if(ev.tipo==="cuerpos"){meta.texto_libre=JSON.stringify(state.cuerpos);}
     if(up.just&&up.just.trim())meta.justificacion=up.just.trim();
-    (up.fileObjs||[]).forEach(f=>archivos.push({campo:"ev_"+idx,file:f}));
-    evidenciasMeta.push(meta);
+    const evIndex=evidencias.length;
+    (up.fileObjs||[]).forEach(f=>subidas.push({evIndex,campo:"ev_"+idx,file:f}));
+    evidencias.push(meta);
   });
 
   // Modo demo (sin backend): conservar el comportamiento anterior.
@@ -904,20 +905,30 @@ async function enviarTicket(btn){
 
   if(btn){btn.disabled=true;btn.textContent="Enviando…";}
   try{
-    const fd=new FormData();
-    fd.append("tipo_ticket",state.tipo||"");
-    fd.append("familia",state.familia||"");
-    fd.append("numero_factura",state.factura||"");
-    fd.append("codigo_producto",state.itemCode||state.producto||"");
-    fd.append("numero_serie",state.serie||"");
-    fd.append("descripcion",state.descripcion||"");
-    fd.append("contacto",state.contacto||"");
-    fd.append("telefono",state.telefono||"");
-    fd.append("emails",JSON.stringify([state.email1,state.email2,state.email3].filter(Boolean)));
-    fd.append("evidencias",JSON.stringify(evidenciasMeta));
-    archivos.forEach(a=>fd.append(a.campo,a.file,a.file.name));
+    // 1) Subir cada archivo DIRECTO a S3 con URL prefirmada (evita el límite de API Gateway).
+    for(let i=0;i<subidas.length;i++){
+      const s=subidas[i];
+      if(btn)btn.textContent=`Subiendo evidencias… ${i+1}/${subidas.length}`;
+      const ct=s.file.type||"application/octet-stream";
+      const r=await fetch(API_BASE+"/tickets/upload-url",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({campo:s.campo,filename:s.file.name,contentType:ct,numeroFactura:state.factura})});
+      if(!r.ok)throw new Error("No se pudo preparar la subida de un archivo.");
+      const {key,url}=await r.json();
+      const put=await fetch(url,{method:"PUT",headers:{"Content-Type":ct},body:s.file});
+      if(!put.ok)throw new Error("Falló la subida de un archivo.");
+      evidencias[s.evIndex].archivos_s3.push(key);
+    }
 
-    const res=await fetch(API_BASE+"/tickets",{method:"POST",credentials:"include",body:fd});
+    // 2) Crear el ticket (solo metadatos + keys de S3 → JSON pequeño).
+    if(btn)btn.textContent="Enviando…";
+    const res=await fetch(API_BASE+"/tickets",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        tipo_ticket:state.tipo,familia:state.familia,numero_factura:state.factura,
+        codigo_producto:state.itemCode||state.producto||"",numero_serie:state.serie||"",
+        descripcion:state.descripcion||"",contacto:state.contacto||"",telefono:state.telefono||"",
+        cantidad:state.cantidad||"",emails:[state.email1,state.email2,state.email3].filter(Boolean),
+        evidencias
+      })});
     if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error||"No se pudo enviar la solicitud.");}
     const data=await res.json();
     state.folioSap=data.folio_sap||null;

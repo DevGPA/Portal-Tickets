@@ -1,7 +1,6 @@
 'use strict';
 
 const express = require('express');
-const multer = require('multer');
 const db = require('../services/db');
 const s3 = require('../services/s3');
 const sap = require('../services/sapClient');
@@ -9,12 +8,6 @@ const { requireAuth } = require('../middleware/auth');
 const { asyncH } = require('../middleware/errorHandler');
 
 const router = express.Router();
-
-// Archivos de evidencias en memoria (luego se suben a S3). Límite 25 MB c/u.
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024, files: 30 },
-});
 
 // Todas las rutas de tickets requieren sesión.
 router.use(requireAuth);
@@ -87,45 +80,44 @@ router.get(
   })
 );
 
-// POST /tickets  (multipart/form-data)
-//   Campos de texto:  tipo_ticket, familia, numero_factura, codigo_producto,
-//                     numero_serie, descripcion, contacto, telefono, emails (JSON),
-//                     evidencias (JSON: [{nombre,tipo_requerimiento,justificacion,texto_libre,campoArchivo}])
-//   Archivos:         uno o varios, cuyo fieldname referencia la evidencia (ej: "ev_0", "ev_1").
-//   -> { id, folio_sap }
-//
-// NOTA: este es el endpoint que faltaba. El frontend (renderSuccess) debe
-// cambiarse para hacer este POST en vez de generar el folio en el navegador.
+// POST /tickets/upload-url  { campo, filename, contentType, numeroFactura }
+//   -> { key, url }  (URL prefirmada para subir el archivo DIRECTO a S3)
+// El navegador sube cada evidencia a S3 con esta URL (PUT), evitando el límite
+// de 10 MB de API Gateway. Luego POST /tickets solo envía las keys resultantes.
+router.post(
+  '/upload-url',
+  asyncH(async (req, res) => {
+    const { campo, filename, contentType, numeroFactura } = req.body || {};
+    if (!filename) return res.status(400).json({ error: 'Falta el nombre del archivo.' });
+    const safeName = String(filename).replace(/[^\w.\- ]/g, '_').slice(0, 120);
+    const fac = String(numeroFactura || 'sin-factura').replace(/[^\w-]/g, '_');
+    const slug = String(campo || 'ev').replace(/[^\w-]/g, '_');
+    const rand = Math.random().toString(36).slice(2, 10);
+    const key = `tickets/${req.user.sap_cliente_id}/${fac}/${slug}/${rand}-${safeName}`;
+    const out = await s3.urlSubida({ key, contentType });
+    res.json(out);
+  })
+);
+
+// POST /tickets  (application/json)
+//   Body: { tipo_ticket, familia, numero_factura, codigo_producto, numero_serie,
+//           descripcion, contacto, telefono, emails, cantidad,
+//           evidencias: [{nombre, tipo_requerimiento, archivos_s3:[key], justificacion, texto_libre}] }
+//   Los archivos ya fueron subidos a S3 vía /tickets/upload-url; aquí solo van las keys.
+//   -> { id, folio_sap, sap_service_call_id, sap_sync_error }
 router.post(
   '/',
-  upload.any(),
   asyncH(async (req, res) => {
     const b = req.body || {};
     if (!b.tipo_ticket || !b.familia || !b.numero_factura) {
       return res.status(400).json({ error: 'Faltan campos obligatorios del ticket.' });
     }
 
-    let evidenciasMeta = [];
-    try {
-      evidenciasMeta = b.evidencias ? JSON.parse(b.evidencias) : [];
-    } catch (_e) {
-      return res.status(400).json({ error: 'Formato de evidencias inválido.' });
-    }
-
-    // Subir archivos a S3 y agrupar las keys por la evidencia a la que pertenecen.
-    const keysPorCampo = {};
-    for (const file of req.files || []) {
-      const slug = file.fieldname; // ej: "ev_0"
-      const key = `tickets/2026/06/${b.numero_factura}/${slug}/${file.originalname}`;
-      // eslint-disable-next-line no-await-in-loop
-      await s3.subirEvidencia({ key, buffer: file.buffer, contentType: file.mimetype });
-      (keysPorCampo[slug] = keysPorCampo[slug] || []).push(key);
-    }
-
-    const evidencias = evidenciasMeta.map((ev, i) => ({
+    const evidenciasMeta = Array.isArray(b.evidencias) ? b.evidencias : [];
+    const evidencias = evidenciasMeta.map((ev) => ({
       nombre: ev.nombre,
       tipo_requerimiento: ev.tipo_requerimiento || 'O',
-      archivos_s3: keysPorCampo[ev.campoArchivo || `ev_${i}`] || [],
+      archivos_s3: Array.isArray(ev.archivos_s3) ? ev.archivos_s3 : [],
       justificacion: ev.justificacion || null,
       texto_libre: ev.texto_libre || null,
     }));

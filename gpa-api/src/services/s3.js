@@ -32,6 +32,24 @@ async function subirEvidencia({ key, buffer, contentType }) {
 }
 
 /**
+ * Genera una URL prefirmada de SUBIDA (PUT) para que el navegador suba la
+ * evidencia DIRECTO a S3, sin pasar por API Gateway (que limita a 10 MB).
+ * La encriptación en reposo la aplica el bucket por defecto (no se exige header).
+ * @returns {Promise<{key:string,url:string}>}
+ */
+async function urlSubida({ key, contentType }) {
+  if (!s3Enabled) {
+    return { key, url: `https://example.invalid/upload/${encodeURIComponent(key)}` };
+  }
+  const url = await getSignedUrl(
+    client,
+    new PutObjectCommand({ Bucket: config.s3.bucket, Key: key, ContentType: contentType || 'application/octet-stream' }),
+    { expiresIn: config.s3.presignExpires }
+  );
+  return { key, url };
+}
+
+/**
  * Genera una URL prefirmada de descarga (GET) para una key de S3.
  * El frontend la usa en verArchivo()/descargarDocumento().
  */
@@ -47,4 +65,4 @@ async function urlDescarga(key) {
   );
 }
 
-module.exports = { subirEvidencia, urlDescarga, s3Enabled };
+module.exports = { subirEvidencia, urlSubida, urlDescarga, s3Enabled };
