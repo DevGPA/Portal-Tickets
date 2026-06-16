@@ -7,37 +7,34 @@ const cors         = require('cors');
 const cookieParser = require('cookie-parser');
 const rateLimit    = require('express-rate-limit');
 
-const logger          = require('./utils/logger');
-const { errorHandler } = require('./middleware/errorHandler');
+const logger            = require('./utils/logger');
+const { errorHandler }  = require('./middleware/errorHandler');
 
 const authRoutes    = require('./routes/auth');
 const ticketsRoutes = require('./routes/tickets');
 const uploadRoutes  = require('./routes/upload');
+const sapRoutes     = require('./routes/sap');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
 // ── Seguridad ─────────────────────────────────────────────────────────────────
 app.use(helmet());
-
 app.use(cors({
   origin:      process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true,   // necesario para enviar/recibir cookies
+  credentials: true,
 }));
 
-// Rate limiting global — 200 req / 15 min por IP
+// Rate limiting global
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max:      200,
-  standardHeaders: true,
-  legacyHeaders:   false,
+  windowMs: 15 * 60 * 1000, max: 200,
+  standardHeaders: true, legacyHeaders: false,
   message: { error: 'Demasiadas peticiones. Intenta de nuevo en unos minutos.' },
 }));
 
-// Rate limiting más estricto para login — 10 intentos / 15 min
+// Rate limiting estricto para login
 app.use('/api/auth/login', rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max:      10,
+  windowMs: 15 * 60 * 1000, max: 10,
   message: { error: 'Demasiados intentos de login. Intenta en 15 minutos.' },
 }));
 
@@ -52,6 +49,7 @@ app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString
 app.use('/api/auth',    authRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/upload',  uploadRoutes);
+app.use('/api/sap',     sapRoutes);     // ← nuevo: familias, buscar-facturas, articulos-factura
 
 // 404
 app.use((req, res) => res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` }));
@@ -61,7 +59,7 @@ app.use(errorHandler);
 
 // ── Arrancar ──────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  logger.info(`GPA Postventa API corriendo en puerto ${PORT} [${process.env.NODE_ENV || 'development'}]`);
+  logger.info(`GPA Postventa API en puerto ${PORT} [${process.env.NODE_ENV || 'development'}]`);
 });
 
 module.exports = app;
