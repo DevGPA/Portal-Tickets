@@ -1224,10 +1224,11 @@ async function solicitarRecuperacion() {
 // La sesión se guarda en sessionStorage — se borra al cerrar el navegador.
 // El JWT viene en cookie HttpOnly desde el backend (más seguro).
 
-const API_BASE = ''; // En producción: URL del API Gateway
-// NOTA PARA TI: agregar en gpa-api/src/routes/tickets.js el endpoint:
-// POST /api/sap/articulos-factura → llama a Lambda 'obtenerArticulosFactura'
-// con { cardCode: req.user.sap_cliente_id, docNum: req.body.docNum } // En producción: 'https://TU-API-GATEWAY.execute-api.us-east-1.amazonaws.com/production'
+// URL del API Gateway desplegado (stack SAM gpa-postventa, us-east-1).
+// Vaciar ('') para volver al modo demo con datos mock.
+// Backend: auth/login|logout|me|recover|reset-password, tickets, upload,
+//  /sap/buscar-facturas, /sap/articulos-factura.
+const API_BASE = 'https://7su23pkku2.execute-api.us-east-1.amazonaws.com/Prod';
 
 let currentUser = null;
 

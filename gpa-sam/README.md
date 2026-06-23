@@ -10,8 +10,8 @@ gpa-sam/
 │   ├── shared/
 │   │   ├── db.js              ← Pool Aurora (compartido)
 │   │   └── helpers.js         ← Respuestas HTTP + auth JWT
-│   ├── auth/index.js          ← POST /auth/login | POST /auth/logout | GET /auth/me
-│   ├── tickets/index.js       ← POST /tickets | GET /tickets | GET /tickets/{id}
+│   ├── auth/index.js          ← login | logout | me | recover | reset-password
+│   ├── tickets/index.js       ← tickets CRUD + /sap/buscar-facturas + /sap/articulos-factura
 │   ├── upload/index.js        ← POST /upload/presigned-url | POST /upload/confirm
 │   └── sap/index.js           ← Lambda interna SAP (sin API Gateway)
 └── frontend/
@@ -38,14 +38,15 @@ aws configure
 
 ## Deploy (primera vez)
 
-### 1. Ajustar subnet y VPC en template.yaml
+### 1. VPC y subnets (ya configuradas)
 
-Buscar y reemplazar estos valores con los reales de tu cuenta AWS:
+El `template.yaml` ya apunta a la VPC default de la cuenta `149857424311` (us-east-1):
 ```
-subnet-XXXXXXXX  → ID de subnet real (necesitas 2 de distintas AZs)
-subnet-YYYYYYYY  → segunda subnet
-vpc-XXXXXXXX     → ID de tu VPC
+VpcId   = vpc-5104762c
+Subnets = subnet-66486447 (us-east-1a), subnet-2d619761 (us-east-1b)
 ```
+Si despliegas en otra cuenta/región, reemplaza estos valores por los tuyos
+(2 subnets en AZs distintas + el VpcId que las contiene).
 
 ### 2. Construir
 
@@ -135,7 +136,7 @@ psql postgresql://gpa_admin:PASSWORD@ENDPOINT/gpa_postventa
 INSERT INTO usuarios (email, password_hash, nombre_empresa, ejecutivo_gpa, categoria, sap_cliente_id)
 VALUES (
   'dist@empresa.com',
-  '$2b$12$HASH_GENERADO_CON_BCRYPT',  -- generar con: node -e "console.log(require('bcrypt').hashSync('password',12))"
+  '$2b$12$HASH_GENERADO_CON_BCRYPT',  -- generar con: node -e "console.log(require('bcryptjs').hashSync('password',12))"
   'Distribuidora SA',
   'EV01',
   'Estándar',
@@ -163,11 +164,22 @@ sam logs -n SapFunction --stack-name gpa-postventa --tail
 | POST | /auth/login | AuthFunction | Pública |
 | POST | /auth/logout | AuthFunction | Pública |
 | GET | /auth/me | AuthFunction | JWT |
+| POST | /auth/recover | AuthFunction | Pública |
+| POST | /auth/reset-password | AuthFunction | Pública (token) |
 | POST | /tickets | TicketsFunction | JWT |
 | GET | /tickets | TicketsFunction | JWT |
 | GET | /tickets/{id} | TicketsFunction | JWT |
 | GET | /tickets/{id}/evidencias/{key}/url | TicketsFunction | JWT |
+| POST | /sap/buscar-facturas | TicketsFunction | JWT |
+| POST | /sap/articulos-factura | TicketsFunction | JWT |
 | POST | /upload/presigned-url | UploadFunction | JWT |
 | POST | /upload/confirm | UploadFunction | JWT |
 
-La Lambda SAP (`SapFunction`) NO tiene endpoint — solo la invoca `TicketsFunction` internamente.
+La Lambda SAP (`SapFunction`) NO tiene endpoint — la invoca `TicketsFunction` internamente.
+Acciones soportadas por `SapFunction`: `crearTicket`, `consultarTicket`, `verificarCliente`,
+`buscarFacturas`, `obtenerArticulosFactura`.
+
+> **Recuperación de contraseña:** `/auth/recover` envía un correo con enlace a
+> `${CorsOrigin}/reset-password?token=...` (válido 1 h). El enlace abre el portal, que
+> debe llamar a `/auth/reset-password` con `{ token, password }`. Requiere las columnas
+> `reset_token` / `reset_token_expiry` en `usuarios` (ya incluidas en `migrate.js`).

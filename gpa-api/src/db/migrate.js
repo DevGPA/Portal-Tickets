@@ -19,9 +19,15 @@ CREATE TABLE IF NOT EXISTS usuarios (
   categoria       TEXT        NOT NULL CHECK (categoria IN ('Clave','Premium','Estándar')),
   sap_cliente_id  TEXT        NOT NULL,
   activo          BOOLEAN     NOT NULL DEFAULT true,
+  reset_token        TEXT,                  -- recuperación de contraseña
+  reset_token_expiry TIMESTAMPTZ,           -- expiración del token (1 h)
   creado_en       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Por si la tabla ya existía sin estas columnas
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token        TEXT;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMPTZ;
 
 -- ── Tickets ────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tickets (

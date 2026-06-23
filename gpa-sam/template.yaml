@@ -27,7 +27,7 @@ Parameters:
 
   SapServiceLayerUrl:
     Type: String
-    Description: URL pública de SAP B1 Service Layer. Ej: https://sap.gpa.com.mx/b1s/v1
+    Description: "URL pública de SAP B1 Service Layer. Ej: https://sap.gpa.com.mx/b1s/v1"
 
   SapCompanyDb:
     Type: String
@@ -43,7 +43,7 @@ Parameters:
 
   SmtpHost:
     Type: String
-    Description: Host SMTP de GPA. Ej: mail.gpa.com.mx
+    Description: "Host SMTP de GPA. Ej: mail.gpa.com.mx"
 
   SmtpPort:
     Type: String
@@ -62,7 +62,7 @@ Parameters:
 
   CorsOrigin:
     Type: String
-    Description: URL del portal frontend. Ej: https://postventa-gpa.com
+    Description: "URL del portal frontend. Ej: https://postventa-gpa.com"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # GLOBALS — aplican a todas las funciones Lambda
@@ -86,53 +86,43 @@ Globals:
         DB_NAME:            gpa_postventa
         DB_USER:            gpa_admin
         DB_PASSWORD:        !Ref DbPassword
-        SAP_LAMBDA_NAME:    !Ref SapFunction
+        # Nombre literal (no !Ref) para evitar que SapFunction se refiera a sí
+        # misma vía Globals, lo que generaba una dependencia circular.
+        SAP_LAMBDA_NAME:    !Sub gpa-sap-${Environment}
         EMAIL_FROM:         !Sub "GPA Postventa <${SmtpUser}>"
         EMAIL_POSTVENTA:    !Ref EmailPostventa
         SMTP_HOST:          !Ref SmtpHost
         SMTP_PORT:          !Ref SmtpPort
         SMTP_USER:          !Ref SmtpUser
         SMTP_PASSWORD:      !Ref SmtpPassword
+  # API Gateway implícita (SAM crea ServerlessRestApi). Se usa la implícita en
+  # vez de un AWS::Serverless::Api explícito porque este último provocaba
+  # dependencias circulares entre el API, su stage/deployment y los permisos Lambda.
+  Api:
+    OpenApiVersion: '3.0.1'
+    Cors:
+      AllowMethods: "'GET,POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,Cookie,Authorization'"
+      AllowOrigin: !Sub "'${CorsOrigin}'"
+      AllowCredentials: true
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RECURSOS
 # ══════════════════════════════════════════════════════════════════════════════
 Resources:
 
-  # ── API Gateway ─────────────────────────────────────────────────────────────
-  GpaApi:
-    Type: AWS::Serverless::Api
-    Properties:
-      Name: !Sub gpa-postventa-api-${Environment}
-      StageName: !Ref Environment
-      Cors:
-        AllowMethods: "'GET,POST,OPTIONS'"
-        AllowHeaders: "'Content-Type,Cookie,Authorization'"
-        AllowOrigin: !Sub "'${CorsOrigin}'"
-        AllowCredentials: true
-      Auth:
-        DefaultAuthorizer: NONE   # auth manejada en cada Lambda con JWT
-      GatewayResponses:
-        DEFAULT_4XX:
-          ResponseParameters:
-            Headers:
-              Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
-              Access-Control-Allow-Credentials: "'true'"
-        DEFAULT_5XX:
-          ResponseParameters:
-            Headers:
-              Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
-              Access-Control-Allow-Credentials: "'true'"
 
   # ── Layer de dependencias compartidas ────────────────────────────────────────
-  # bcrypt, jsonwebtoken, pg, nodemailer, node-fetch, uuid, @aws-sdk/*
-  # Se construye con sam build y se sube automáticamente.
+  # bcryptjs, jsonwebtoken, pg, nodemailer, node-fetch, uuid, @aws-sdk/*
+  # Solo deps JS puras (sin binarios nativos), por lo que sam build las instala
+  # en el host sin necesidad de Docker. ContentUri apunta a la carpeta con
+  # package.json; con BuildMethod nodejs20.x, SAM las envuelve en nodejs/node_modules.
   DependenciesLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: !Sub gpa-dependencies-${Environment}
       Description: Dependencias npm compartidas entre todas las funciones
-      ContentUri: layers/
+      ContentUri: layers/nodejs/
       CompatibleRuntimes:
         - nodejs20.x
     Metadata:
@@ -147,73 +137,87 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub gpa-auth-${Environment}
-      CodeUri: functions/auth/
-      Handler: index.handler
+      # CodeUri en functions/ (no functions/auth/) para incluir shared/.
+      CodeUri: functions/
+      Handler: auth/index.handler
       Description: Login / logout / me — JWT en cookie HttpOnly
       Events:
         Login:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /auth/login
             Method: POST
         Logout:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /auth/logout
             Method: POST
         Me:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /auth/me
             Method: GET
+        Recover:
+          Type: Api
+          Properties:
+            Path: /auth/recover
+            Method: POST
+        ResetPassword:
+          Type: Api
+          Properties:
+            Path: /auth/reset-password
+            Method: POST
 
   # ── Tickets: crear, listar, detalle ─────────────────────────────────────────
   TicketsFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub gpa-tickets-${Environment}
-      CodeUri: functions/tickets/
-      Handler: index.handler
+      CodeUri: functions/
+      Handler: tickets/index.handler
       Description: CRUD de tickets de postventa
       Policies:
         - LambdaInvokePolicy:
-            FunctionName: !Ref SapFunction
+            FunctionName: !Sub gpa-sap-${Environment}
       Events:
         CreateTicket:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /tickets
             Method: POST
         ListTickets:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /tickets
             Method: GET
         GetTicket:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /tickets/{id}
             Method: GET
         GetEvidenciaUrl:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /tickets/{id}/evidencias/{key}/url
             Method: GET
+        BuscarFacturas:
+          Type: Api
+          Properties:
+            Path: /sap/buscar-facturas
+            Method: POST
+        ArticulosFactura:
+          Type: Api
+          Properties:
+            Path: /sap/articulos-factura
+            Method: POST
 
   # ── Upload: presigned URL + confirmar subida ─────────────────────────────────
   UploadFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub gpa-upload-${Environment}
-      CodeUri: functions/upload/
-      Handler: index.handler
+      CodeUri: functions/
+      Handler: upload/index.handler
       Description: Genera URLs prefirmadas de S3 y confirma subidas
       Policies:
         - S3CrudPolicy:
@@ -222,13 +226,11 @@ Resources:
         PresignedUrl:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /upload/presigned-url
             Method: POST
         ConfirmUpload:
           Type: Api
           Properties:
-            RestApiId: !Ref GpaApi
             Path: /upload/confirm
             Method: POST
 
@@ -237,8 +239,8 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub gpa-sap-${Environment}
-      CodeUri: functions/sap/
-      Handler: index.handler
+      CodeUri: functions/
+      Handler: sap/index.handler
       Description: Puente con SAP B1 Service Layer (invocación directa, sin API Gateway)
       Timeout: 30
       # Sin Events — esta Lambda no está expuesta en API Gateway.
@@ -288,18 +290,18 @@ Resources:
     Properties:
       DBSubnetGroupDescription: Subnets para Aurora GPA Postventa
       SubnetIds:
-        # REEMPLAZAR con IDs reales de subnets en tu VPC
+        # VPC default de la cuenta 149857424311 (us-east-1) — subnets públicas
         # Las Lambdas NO están en VPC (acceden a Aurora vía endpoint público)
         # Aurora tiene acceso público habilitado + security group restrictivo
-        - subnet-XXXXXXXX
-        - subnet-YYYYYYYY
+        - subnet-66486447   # us-east-1a
+        - subnet-2d619761   # us-east-1b
 
   # Security Group — solo acepta conexiones desde las IPs de Lambda (o abierto con SSL)
   AuroraSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Aurora GPA Postventa — acceso PostgreSQL
-      VpcId: vpc-XXXXXXXX   # REEMPLAZAR con tu VPC ID
+      GroupDescription: Aurora GPA Postventa - acceso PostgreSQL
+      VpcId: vpc-5104762c   # VPC default de la cuenta (us-east-1)
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 5432
@@ -312,7 +314,7 @@ Resources:
     Properties:
       DBClusterIdentifier: !Sub gpa-postventa-${Environment}
       Engine:              aurora-postgresql
-      EngineVersion:       '15.4'
+      EngineVersion:       '15.17'
       EngineMode:          provisioned   # Serverless v2 usa modo "provisioned" con capacidad escalable
       DatabaseName:        gpa_postventa
       MasterUsername:      gpa_admin
@@ -320,7 +322,7 @@ Resources:
       DBSubnetGroupName:   !Ref AuroraSubnetGroup
       VpcSecurityGroupIds:
         - !Ref AuroraSecurityGroup
-      PubliclyAccessible:  true         # true para que Lambdas fuera de VPC se conecten
+      # PubliclyAccessible NO aplica a nivel cluster en Aurora — va en la instancia.
       EnableIAMDatabaseAuthentication: false
       BackupRetentionPeriod: 7
       DeletionProtection:  true
@@ -345,8 +347,8 @@ Resources:
 Outputs:
 
   ApiUrl:
-    Description: URL base del API Gateway — pegar en el frontend como API_BASE_URL
-    Value: !Sub https://${GpaApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Description: URL base del API Gateway — pegar en el frontend como API_BASE
+    Value: !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod
     Export:
       Name: !Sub GpaPostventaApiUrl-${Environment}
 

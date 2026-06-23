@@ -11,6 +11,8 @@ package-lock.json
 # ── AWS SAM ───────────────────────────────────────────────────────────────────
 .aws-sam/
 samconfig.toml
+*.deploy.log
+.deploy.log
 
 # ── Sistema operativo ─────────────────────────────────────────────────────────
 .DS_Store

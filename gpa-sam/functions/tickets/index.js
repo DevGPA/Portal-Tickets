@@ -10,7 +10,7 @@ const { getSignedUrl }                = require('@aws-sdk/s3-request-presigner')
 const { v4: uuidv4 }                  = require('uuid');
 const nodemailer                      = require('nodemailer');
 const { getPool }                     = require('../shared/db');
-const { ok, accepted, badRequest, forbidden, notFound, serverError, requireAuth, parseBody } = require('../shared/helpers');
+const { ok, accepted, badRequest, forbidden, notFound, serverError, unauthorized, requireAuth, parseBody } = require('../shared/helpers');
 
 const lambda = new LambdaClient({ region: process.env.AWS_ACCOUNT_REGION });
 const s3     = new S3Client({     region: process.env.AWS_ACCOUNT_REGION });
@@ -22,6 +22,10 @@ exports.handler = async (event) => {
   const path   = event.path;
 
   try {
+    // POST /sap/buscar-facturas
+    if (method === 'POST' && path.endsWith('/sap/buscar-facturas'))    return buscarFacturas(event);
+    // POST /sap/articulos-factura
+    if (method === 'POST' && path.endsWith('/sap/articulos-factura'))  return articulosFactura(event);
     // POST /tickets
     if (method === 'POST' && /\/tickets$/.test(path))       return createTicket(event);
     // GET  /tickets
@@ -37,6 +41,60 @@ exports.handler = async (event) => {
     return serverError();
   }
 };
+
+// ── Helper: invocar Lambda SAP ────────────────────────────────────────────────
+async function invokeSAP(action, payload) {
+  const cmd = new InvokeCommand({
+    FunctionName:   process.env.SAP_LAMBDA_NAME,
+    InvocationType: 'RequestResponse',
+    Payload:        Buffer.from(JSON.stringify({ action, payload })),
+  });
+  const res = await lambda.send(cmd);
+  if (res.FunctionError) {
+    throw new Error(`Lambda SAP FunctionError [${action}]: ${Buffer.from(res.Payload).toString()}`);
+  }
+  return JSON.parse(Buffer.from(res.Payload).toString());
+}
+
+// Devuelve el sap_cliente_id (CardCode) del usuario autenticado
+async function getCardCode(userId) {
+  const { rows: [user] } = await getPool().query(
+    'SELECT sap_cliente_id FROM usuarios WHERE id = $1 AND activo = true', [userId]
+  );
+  return user?.sap_cliente_id || null;
+}
+
+// ── POST /sap/buscar-facturas ─────────────────────────────────────────────────
+// Autocompletado de facturas del cliente. Body: { query }
+async function buscarFacturas(event) {
+  const { payload, response } = requireAuth(event);
+  if (response) return response;
+
+  const { query } = parseBody(event);
+  if (!query || String(query).trim().length < 2) return ok({ success: true, facturas: [] });
+
+  const cardCode = await getCardCode(payload.sub);
+  if (!cardCode) return unauthorized();
+
+  const data = await invokeSAP('buscarFacturas', { cardCode, query: String(query).trim() });
+  return ok(data);
+}
+
+// ── POST /sap/articulos-factura ───────────────────────────────────────────────
+// Artículos de una factura del cliente. Body: { docNum }
+async function articulosFactura(event) {
+  const { payload, response } = requireAuth(event);
+  if (response) return response;
+
+  const { docNum } = parseBody(event);
+  if (!docNum) return badRequest('docNum es requerido.');
+
+  const cardCode = await getCardCode(payload.sub);
+  if (!cardCode) return unauthorized();
+
+  const data = await invokeSAP('obtenerArticulosFactura', { cardCode, docNum: String(docNum).trim() });
+  return ok(data);
+}
 
 // ── POST /tickets ─────────────────────────────────────────────────────────────
 async function createTicket(event) {

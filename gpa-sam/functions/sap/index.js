@@ -111,13 +111,92 @@ async function verificarCliente(p) {
   }
 }
 
+// ── Autocompletado de facturas ─────────────────────────────────────────────────
+// Busca facturas del cliente cuyo DocNum contenga el texto escrito.
+// Payload: { cardCode, query }
+// Respuesta: { success: true, facturas: [{ docNum, fecha, total, moneda }] }
+async function buscarFacturas(p) {
+  if (!p?.cardCode) return { success: false, errorCode: 400, error: 'cardCode requerido.' };
+  if (!p?.query || p.query.trim().length < 2) return { success: true, facturas: [] };
+
+  const q      = p.query.trim();
+  const filter = `CardCode eq '${encodeURIComponent(p.cardCode)}' and contains(cast(DocNum,Edm.String),'${q}')`;
+  const path   = `/Invoices?$filter=${filter}&$select=DocNum,DocDate,DocTotal,DocCurrency&$orderby=DocNum desc&$top=10`;
+
+  try {
+    const data = await withRetry(() => sapRequest('GET', path), 'buscarFacturas');
+    const facturas = (data?.value || []).map(f => ({
+      docNum: String(f.DocNum),
+      fecha:  f.DocDate ? f.DocDate.substring(0, 10) : null,
+      total:  f.DocTotal,
+      moneda: f.DocCurrency || 'MXN',
+    }));
+    return { success: true, facturas };
+  } catch (e) {
+    return { success: false, errorCode: e.sapStatus || 502, error: e.message };
+  }
+}
+
+// ── Artículos de una factura ─────────────────────────────────────────────────
+// Busca la factura (DocNum) del cliente (CardCode) y devuelve sus líneas con
+// código, descripción, U_TipoGarantia y cantidad.
+// Payload: { cardCode, docNum }
+// Respuesta: { success: true, articulos: [{ itemCode, descripcion, tipoGarantia, cantidad }] }
+async function obtenerArticulosFactura(p) {
+  if (!p?.cardCode) return { success: false, errorCode: 400, error: 'cardCode requerido.' };
+  if (!p?.docNum)   return { success: false, errorCode: 400, error: 'docNum requerido.' };
+
+  const docNum = parseInt(p.docNum, 10);
+  if (isNaN(docNum)) return { success: false, errorCode: 400, error: 'docNum debe ser numérico.' };
+
+  try {
+    const filter = `CardCode eq '${encodeURIComponent(p.cardCode)}' and DocNum eq ${docNum}`;
+    const path   = `/Invoices?$filter=${filter}&$select=DocNum,CardCode,DocumentLines&$top=1`;
+    const data   = await withRetry(() => sapRequest('GET', path), 'obtenerArticulosFactura');
+
+    const facturas = data?.value || [];
+    if (!facturas.length) return { success: false, errorCode: 404, error: `Factura ${p.docNum} no encontrada para este cliente.` };
+
+    const lineas = facturas[0].DocumentLines || [];
+    if (!lineas.length) return { success: false, errorCode: 404, error: 'La factura no tiene líneas de artículos.' };
+
+    // DocumentLines no incluye UDFs del artículo — se consultan en el maestro
+    const articulos = await Promise.all(
+      lineas
+        .filter(l => l.ItemCode && l.ItemCode.trim())
+        .map(async (linea) => {
+          let tipoGarantia = null;
+          try {
+            const item = await sapRequest('GET', `/Items('${encodeURIComponent(linea.ItemCode)}')`);
+            tipoGarantia = item.U_TipoGarantia || null;
+          } catch (e) {
+            console.warn(`No se pudo obtener U_TipoGarantia para ${linea.ItemCode}: ${e.message}`);
+          }
+          return {
+            itemCode:    linea.ItemCode,
+            descripcion: linea.ItemDescription || linea.ItemCode,
+            tipoGarantia,
+            cantidad:    linea.Quantity || 1,
+          };
+        })
+    );
+
+    return { success: true, docNum: p.docNum, articulos };
+  } catch (e) {
+    if (e.sapStatus === 404) return { success: false, errorCode: 404, error: `Factura ${p.docNum} no encontrada.` };
+    return { success: false, errorCode: e.sapStatus || 502, error: e.message };
+  }
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 exports.handler = async (event) => {
   console.log('[SAP Lambda] action:', event.action);
   switch (event.action) {
-    case 'crearTicket':      return crearTicket(event.payload);
-    case 'consultarTicket':  return consultarTicket(event.payload);
-    case 'verificarCliente': return verificarCliente(event.payload);
+    case 'crearTicket':              return crearTicket(event.payload);
+    case 'consultarTicket':          return consultarTicket(event.payload);
+    case 'verificarCliente':         return verificarCliente(event.payload);
+    case 'buscarFacturas':           return buscarFacturas(event.payload);
+    case 'obtenerArticulosFactura':  return obtenerArticulosFactura(event.payload);
     default: return { success: false, errorCode: 400, error: `Acción desconocida: "${event.action}"` };
   }
 };
