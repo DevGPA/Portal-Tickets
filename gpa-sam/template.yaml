@@ -243,8 +243,84 @@ Resources:
       Handler: sap/index.handler
       Description: Puente con SAP B1 Service Layer (invocación directa, sin API Gateway)
       Timeout: 30
+      # Variables de conexión a SAP (se mergean con las de Globals).
+      Environment:
+        Variables:
+          SAP_SERVICE_LAYER_URL: !Ref SapServiceLayerUrl
+          SAP_COMPANY_DB:        !Ref SapCompanyDb
+          SAP_USER:              !Ref SapUser
+          SAP_PASSWORD:          !Ref SapPassword
+      # En VPC con salida por NAT Gateway → Elastic IP fija (lista blanca SAP).
+      Policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SapLambdaSecurityGroup
+        SubnetIds:
+          - !Ref SapPrivateSubnet
       # Sin Events — esta Lambda no está expuesta en API Gateway.
       # Solo la invoca TicketsFunction directamente vía AWS SDK.
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Red para salida fija de la Lambda SAP (NAT Gateway + Elastic IP)
+  # Solo SapFunction entra a la VPC; sale a internet por una IP fija que el
+  # firewall de SAP autoriza. Las demás Lambdas permanecen fuera de VPC.
+  # ──────────────────────────────────────────────────────────────────────────
+  SapEgressIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub gpa-sap-egress-${Environment}
+
+  SapNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt SapEgressIp.AllocationId
+      SubnetId: subnet-66486447   # subnet pública existente (us-east-1a, ruta a IGW)
+      Tags:
+        - Key: Name
+          Value: !Sub gpa-sap-nat-${Environment}
+
+  SapPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: vpc-5104762c
+      CidrBlock: 172.31.240.0/24   # CIDR libre dentro del VPC default
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub gpa-sap-private-${Environment}
+
+  SapPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: vpc-5104762c
+
+  SapPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref SapPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref SapNatGateway
+
+  SapPrivateSubnetAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SapPrivateSubnet
+      RouteTableId: !Ref SapPrivateRouteTable
+
+  SapLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Egress de la Lambda SAP hacia el Service Layer
+      VpcId: vpc-5104762c
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Salida a internet via NAT
 
   # ──────────────────────────────────────────────────────────────────────────
   # S3 — Bucket de archivos (evidencias)
@@ -363,3 +439,7 @@ Outputs:
   SapFunctionArn:
     Description: ARN de la Lambda SAP (para invocarla directamente)
     Value: !GetAtt SapFunction.Arn
+
+  SapEgressIp:
+    Description: IP fija de salida de la Lambda SAP — agregar a la lista blanca del firewall de SAP
+    Value: !Ref SapEgressIp

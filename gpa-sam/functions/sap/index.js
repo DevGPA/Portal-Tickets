@@ -1,14 +1,19 @@
 // functions/sap/index.js
 // Lambda de SAP — no está expuesta en API Gateway.
 // Solo la invoca TicketsFunction directamente vía AWS SDK.
-// SAP accesible por URL pública HTTPS con SSL válido — sin agente especial.
+// El SAP Service Layer usa un certificado SSL no confiable (autofirmado/CA
+// privada), por lo que se usa un https.Agent con rejectUnauthorized:false
+// acotado solo a las peticiones a SAP.
 
 const fetch = require('node-fetch');
+const https = require('https');
 
 const BASE    = process.env.SAP_SERVICE_LAYER_URL;
 const COMPANY = process.env.SAP_COMPANY_DB;
 const USER    = process.env.SAP_USER;
 const PASS    = process.env.SAP_PASSWORD;
+
+const sapAgent = new https.Agent({ rejectUnauthorized: false });
 
 // Sesión SAP persiste entre invocaciones warm del mismo container
 let _cookie = null;
@@ -22,6 +27,7 @@ async function getSession() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ CompanyDB: COMPANY, UserName: USER, Password: PASS }),
     timeout: 10_000,
+    agent: sapAgent,
   });
 
   if (!res.ok) throw new Error(`SAP login falló (${res.status}): ${await res.text()}`);
@@ -41,6 +47,7 @@ async function sapRequest(method, path, body) {
     headers: { 'Content-Type': 'application/json', Cookie: `B1SESSION=${session}` },
     ...(body ? { body: JSON.stringify(body) } : {}),
     timeout: 15_000,
+    agent: sapAgent,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
