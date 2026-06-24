@@ -126,18 +126,24 @@ async function buscarFacturas(p) {
   if (!p?.cardCode) return { success: false, errorCode: 400, error: 'cardCode requerido.' };
   if (!p?.query || p.query.trim().length < 2) return { success: true, facturas: [] };
 
-  const q      = p.query.trim();
-  const filter = `CardCode eq '${encodeURIComponent(p.cardCode)}' and contains(cast(DocNum,Edm.String),'${q}')`;
-  const path   = `/Invoices?$filter=${filter}&$select=DocNum,DocDate,DocTotal,DocCurrency&$orderby=DocNum desc&$top=10`;
+  const q = p.query.trim();
+  // SAP B1 Service Layer no soporta cast()/contains() sobre DocNum (numérico),
+  // así que se traen las facturas recientes del cliente y se filtra el substring
+  // por DocNum en JS.
+  const filter = `CardCode eq '${encodeURIComponent(p.cardCode)}'`;
+  const path   = `/Invoices?$filter=${filter}&$select=DocNum,DocDate,DocTotal,DocCurrency&$orderby=DocNum desc&$top=50`;
 
   try {
     const data = await withRetry(() => sapRequest('GET', path), 'buscarFacturas');
-    const facturas = (data?.value || []).map(f => ({
-      docNum: String(f.DocNum),
-      fecha:  f.DocDate ? f.DocDate.substring(0, 10) : null,
-      total:  f.DocTotal,
-      moneda: f.DocCurrency || 'MXN',
-    }));
+    const facturas = (data?.value || [])
+      .filter(f => String(f.DocNum).includes(q))
+      .slice(0, 10)
+      .map(f => ({
+        docNum: String(f.DocNum),
+        fecha:  f.DocDate ? f.DocDate.substring(0, 10) : null,
+        total:  f.DocTotal,
+        moneda: f.DocCurrency || 'MXN',
+      }));
     return { success: true, facturas };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus || 502, error: e.message };
