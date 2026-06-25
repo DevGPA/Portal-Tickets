@@ -907,7 +907,8 @@ async function enviarTicket(){
       const justificacion = up.just ? up.just.trim() : null;
       const tieneFiles = up.files && up.files.length;
       if(textoLibre||justificacion||tieneFiles){
-        evidencias.push({ nombre:ev.nombre, tipoRequerimiento:ev.tipo, justificacion, textoLibre, archivosS3:[] });
+        // tipo_requerimiento en BD es el nivel (O/OJ/Op), no el tipo de input (file3/…)
+        evidencias.push({ nombre:ev.nombre, tipoRequerimiento:ev[state.tipo], justificacion, textoLibre, archivosS3:[] });
       }
     });
 
@@ -946,7 +947,7 @@ async function enviarTicket(){
           await fetch(API_BASE+"/upload/confirm",{
             method:"POST", credentials:"include",
             headers: authHeaders({"Content-Type":"application/json"}),
-            body: JSON.stringify({ ticketId, nombreEvidencia:ev.nombre, tipoRequerimiento:ev.tipo, s3Key }),
+            body: JSON.stringify({ ticketId, nombreEvidencia:ev.nombre, tipoRequerimiento:ev[state.tipo], s3Key }),
           });
           subidos++;
         }catch(err){ fallidos++; console.error("[upload] falló",ev.nombre,err.message); }
