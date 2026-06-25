@@ -80,17 +80,26 @@ async function crearTicket(p) {
   if (missing.length) return { success: false, errorCode: 400, error: `Campos faltantes: ${missing.join(', ')}.` };
 
   try {
-    const data = await withRetry(() => sapRequest('POST', '/ServiceCalls', {
-      CardCode: p.sapClienteId,
+    // INTERINO: los UDFs U_GPA_* aún no existen en el ServiceCall (ORSC) de SAP.
+    // Mientras el admin SAP los crea, se pliegan los datos en Description para no perderlos.
+    // TODO(SAP): cuando existan los UDFs, mover estos campos a sus propiedades U_GPA_*.
+    const detalle = [
+      p.descripcion,
+      '',
+      `Producto: ${p.codigoProducto}`,
+      p.numeroSerie ? `No. Serie: ${p.numeroSerie}` : null,
+      `Contacto: ${p.nombreContacto} · ${p.telefono} · ${p.emailContacto}`,
+    ].filter(v => v !== null).join('\n');
+
+    const body = {
+      CustomerCode: p.sapClienteId,
       Subject: `${TIPO_LABEL[p.tipoTicket]||p.tipoTicket} — ${p.familia} — Fac: ${p.numeroFactura}`,
-      Description: p.descripcion,
-      TechnicianCode: p.ejecutivoGpa,
-      // UDFs — confirmar nombres con admin SAP
-      U_GPA_TipoSolicitud: p.tipoTicket, U_GPA_Familia: p.familia,
-      U_GPA_NumFactura: p.numeroFactura, U_GPA_CodigoProducto: p.codigoProducto,
-      U_GPA_NumSerie: p.numeroSerie||'', U_GPA_ContactoNombre: p.nombreContacto,
-      U_GPA_ContactoTel: p.telefono, U_GPA_ContactoEmail: p.emailContacto,
-    }), 'crearTicket');
+      Description: detalle,
+    };
+    // TechnicianCode en SAP es numérico; el ejecutivo viene como código ("EV01"),
+    // así que solo se envía si es un entero válido (si no, se omite).
+    if (/^\d+$/.test(String(p.ejecutivoGpa || ''))) body.TechnicianCode = parseInt(p.ejecutivoGpa, 10);
+    const data = await withRetry(() => sapRequest('POST', '/ServiceCalls', body), 'crearTicket');
     return { success: true, folio: folio(data.DocNum), sapId: String(data.DocEntry) };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus||502, error: e.message };
