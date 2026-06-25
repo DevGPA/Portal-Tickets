@@ -278,6 +278,19 @@ async function getTicket(event) {
     'SELECT id,nombre,tipo_requerimiento,archivos_s3,justificacion,texto_libre,creado_en FROM evidencias WHERE ticket_id=$1 ORDER BY creado_en',
     [id]
   );
+
+  // Estatus en vivo desde SAP (si el ticket ya existe en SAP). No bloquea si falla.
+  if (ticket.sap_ticket_id && ticket.sap_ticket_id !== 'undefined') {
+    try {
+      const sap = await invokeSAP('consultarTicket', { sapId: ticket.sap_ticket_id });
+      if (sap?.success) {
+        ticket.sap_status         = sap.status;
+        ticket.sap_resolution     = sap.resolution;
+        ticket.sap_info_pendiente = sap.infoPendiente;
+      }
+    } catch (e) { console.error('[tickets] consultarTicket falló:', e.message); }
+  }
+
   return ok({ ticket, evidencias });
 }
 

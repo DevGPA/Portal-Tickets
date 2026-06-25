@@ -76,7 +76,15 @@ const ASSIGNEE_CODE = parseInt(process.env.SAP_ASSIGNEE_CODE || '184', 10);
 const CALL_TYPE = parseInt(process.env.SAP_CALL_TYPE || '17', 10);
 
 const TIPO_LABEL = { gar: 'Garantía', dev: 'Devolución', at: 'Apoyo Técnico' };
-const MAP_STATUS = { Open: 'en_revision', Pending: 'en_proceso', Closed: 'cerrado', Cancelled: 'rechazado' };
+// El ServiceCall trae Status como StatusId numérico (OSCS). Se mapea al nombre
+// que el frontend (getStatusInfo) reconoce. IDs obtenidos de /ServiceCallStatus.
+const STATUS_BY_ID = {
+  '-3': 'Abierto', '-2': 'Pendiente', '-1': 'Cerrado',
+  '7':  'Cierre Cliente', '55': 'Proceso Técnico', '59': 'NC GPA-Cliente Pend',
+  '60': 'VoBo Proveedor', '62': 'Cancelado', '64': 'Cliente Pendientes',
+  '66': 'NC Proveedor Pend', '67': 'Documentando', '68': 'VoBo Direccion',
+  '69': 'NC GPA Conta Pend',
+};
 const folio = (n) => `GPA-${new Date().getFullYear()}-${String(n).padStart(5,'0')}`;
 
 // ── Operaciones ───────────────────────────────────────────────────────────────
@@ -120,7 +128,14 @@ async function consultarTicket(p) {
   if (!p?.sapId) return { success: false, errorCode: 400, error: 'sapId requerido.' };
   try {
     const data = await withRetry(() => sapRequest('GET', `/ServiceCalls(${encodeURIComponent(p.sapId)})`), 'consultarTicket');
-    return { success: true, status: MAP_STATUS[data.Status]||'en_revision', folio: folio(data.DocNum), sapId: String(data.ServiceCallID) };
+    return {
+      success: true,
+      status:        STATUS_BY_ID[String(data.Status)] || String(data.Status),
+      resolution:    data.Resolution || null,
+      infoPendiente: data.U_InfoPendienteCliente || null,
+      folio:         folio(data.DocNum),
+      sapId:         String(data.ServiceCallID),
+    };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus||502, error: e.message };
   }
