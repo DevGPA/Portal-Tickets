@@ -554,7 +554,7 @@ const TICKET_TYPES=[
 
 const AT_VISITA_BANNER=`<div class="alert alert-info" style="margin-bottom:16px"><span class="alert-icon">📋</span><span><strong>Condiciones para la visita técnica:</strong> La visita está sujeta a que las evidencias sean validadas por Postventa y a que la instalación se encuentre dentro de la zona de cobertura establecida por GPA.</span></div>`;
 
-let state={step:1,tipo:null,familia:null,marcaFiltro:null,contacto:"",telefono:"",email1:"",email2:"",email3:"",factura:"",producto:"",serie:"",descripcion:"",uploads:{},cuerpos:[{volumen:"",superficie:"",tempObjetivo:"",cubierta:"si"}]};
+let state={step:1,tipo:null,familia:null,marcaFiltro:null,contacto:"",telefono:"",email1:"",email2:"",email3:"",factura:"",producto:"",serie:"",descripcion:"",cantidad:null,uploads:{},cuerpos:[{volumen:"",superficie:"",tempObjetivo:"",cubierta:"si"}]};
 
 function getFamiliaData(){return FAMILIAS_CON_DEV[state.familia]||null;}
 function getEvidencias(){
@@ -681,11 +681,12 @@ function renderStep2(){
         <input type="text" value="${state.serie}" placeholder="Número de serie o lote del fabricante" oninput="state.serie=this.value"/>
       </div>
       <div class="field"><label>Cantidad <span class="req">*</span></label>
-        <input type="number" id="f_cantidad" value="${state.cantidad}" min="1" step="1"
-          placeholder="1"
-          oninput="state.cantidad=Math.max(1,parseInt(this.value)||1);clearErr('e_cantidad')"
+        <input type="number" id="f_cantidad" value="${state.cantidad===null?'':state.cantidad}" min="1" step="1"
+          placeholder="Ej: 1"
+          oninput="state.cantidad=this.value===''?null:Math.max(1,parseInt(this.value)||1);clearErr('e_cantidad')"
+          required
           style="max-width:140px"/>
-        <div class="field-error" id="e_cantidad">La cantidad debe ser mayor a cero</div>
+        <div class="field-error" id="e_cantidad">Este campo es obligatorio, debe ser mayor a cero</div>
       </div>
     </div>
     <div class="divider"></div>
@@ -745,6 +746,7 @@ function validateStep2(){
   if(!state.factura){showErr("e_factura");ok=false;}
   if(!state.producto){showErr("e_producto");ok=false;}
   if(!state.familia){showErr("e_familia");ok=false;}
+  if(!state.cantidad||state.cantidad<1){showErr("e_cantidad");ok=false;}
   if(!state.descripcion){showErr("e_desc");ok=false;}
   if(!ok){document.querySelector(".field-error.show")?.scrollIntoView({behavior:"smooth",block:"center"});return;}
   const fam=getFamiliaData();
@@ -920,6 +922,7 @@ async function enviarTicket(){
         nombreContacto: state.contacto, telefono: state.telefono,
         emailContacto: state.email1, numeroFactura: state.factura,
         codigoProducto: state.producto, numeroSerie: state.serie,
+        cantidad: state.cantidad,
         descripcion: state.descripcion, evidencias,
       }),
     });
@@ -1012,7 +1015,7 @@ function removeFile(idx,slotIdx){
 }
 function toggleNP(idx){const b=document.getElementById("np_"+idx);if(b)b.style.display=b.style.display==="block"?"none":"block";}
 function resetApp(){
-  state={step:1,tipo:null,familia:null,marcaFiltro:null,contacto:"",telefono:"",email1:"",email2:"",email3:"",factura:"",producto:"",serie:"",descripcion:"",uploads:{},cuerpos:[{volumen:"",superficie:"",tempObjetivo:"",cubierta:"si"}]};render();
+  state={step:1,tipo:null,familia:null,marcaFiltro:null,contacto:"",telefono:"",email1:"",email2:"",email3:"",factura:"",producto:"",serie:"",descripcion:"",cantidad:null,uploads:{},cuerpos:[{volumen:"",superficie:"",tempObjetivo:"",cubierta:"si"}]};render();
 }
 
 
