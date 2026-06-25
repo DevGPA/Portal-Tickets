@@ -591,6 +591,7 @@ function render(){
   else if(state.step==="marca")c.innerHTML=renderMarcaSelector();
   else if(state.step===3)c.innerHTML=renderStep3();
   else if(state.step===4)c.innerHTML=renderStep4();
+  else if(state.step==="enviando")c.innerHTML=renderEnviando();
   else c.innerHTML=renderSuccess();
   window.scrollTo({top:0,behavior:"smooth"});
 }
@@ -790,7 +791,7 @@ function renderUpload(ev,idx,key){
   const cfg=getFileConfig(ev.nombre,ev.tipo);
   const tagColors={video:"tag-video",foto:"tag-foto",ambos:"tag-ambos",doc:"tag-doc"};
   const tagIcons={video:"🎥",foto:"📷",ambos:"📷🎥",doc:"📄"};
-  const slots=files.map((f,s)=>`<div class="slot"><span>📎</span><span class="slot-name">${f}</span><button class="slot-del" onclick="removeFile(${idx},${s})">✕</button></div>`).join("");
+  const slots=files.map((f,s)=>`<div class="slot"><span>📎</span><span class="slot-name">${f.name||f}</span><button class="slot-del" onclick="removeFile(${idx},${s})">✕</button></div>`).join("");
   return`<div class="upload-area"><div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="file-type-tag ${tagColors[cfg.tag]}">${tagIcons[cfg.tag]} ${cfg.tagLabel}</span><span class="upload-hint">${files.length}/${maxFiles} archivo${maxFiles>1?"s":""}</span></div>${slots?`<div class="upload-slots">${slots}</div>`:""}<div><label class="btn-upload" for="file_${idx}_${files.length}" style="${canAdd?"":"opacity:.4;cursor:not-allowed;pointer-events:none"}">📎 ${files.length===0?"Adjuntar":"Agregar otro"}</label><input type="file" id="file_${idx}_${files.length}" accept="${cfg.accept}" onchange="handleFile(${idx},this,'${cfg.accept}')" ${canAdd?"":"disabled"}/></div><div class="ev-err-msg" id="ev_err_${idx}">Debes adjuntar al menos un archivo para continuar</div></div>`;
 }
 function renderNoPuedo(idx,up,placeholder){
@@ -878,16 +879,114 @@ function renderStep4(){
     <table class="resumen-table">
       ${[["Tipo",tipoLabel],["Familia",state.familia+marcaLabel],["No. Factura",state.factura],["Producto",state.producto],["Cantidad",state.cantidad],["Contacto",state.contacto],["Teléfono",state.telefono],["Correo(s)",emails],["Estatus",estatusTexto]].map(([k,v])=>`<tr><td>${k}</td><td style="color:${k==="Estatus"?estatusColor:"var(--negro)"}">${v}</td></tr>`).join("")}
     </table>
-    <div class="btn-row"><button class="btn btn-secondary" onclick="state.step=3;render()">← Atrás</button><button class="btn btn-primary" onclick="state.step=5;render()">✅ Confirmar envío</button></div>
+    <div class="btn-row"><button class="btn btn-secondary" onclick="state.step=3;render()">← Atrás</button><button class="btn btn-primary" onclick="enviarTicket()">✅ Confirmar envío</button></div>
   </div>`;
 }
+function renderEnviando(){
+  return`<div class="card"><div class="success-screen">
+    <div class="success-icon" style="background:var(--azul);animation:none">⏳</div>
+    <div style="font-size:15px;font-weight:700;margin-top:10px">Enviando tu solicitud…</div>
+    <div class="success-desc">Creando el ticket y subiendo las evidencias. Esto puede tardar unos segundos, no cierres la ventana.</div>
+  </div></div>`;
+}
+// Crea el ticket en el backend, sube las evidencias a S3 y espera el folio de SAP.
+async function enviarTicket(){
+  // Demo sin backend: comportamiento original (folio simulado).
+  if(!API_BASE){ state.resultado=null; state.step=5; render(); return; }
+
+  state.step="enviando"; render();
+  try{
+    const evs=getEvidencias();
+
+    // 1) Armar evidencias (texto/justificación) y crear el ticket
+    const evidencias=[];
+    evs.forEach((ev,idx)=>{
+      const up=state.uploads[idx]||{};
+      const textoLibre = ev.tipo==="cuerpos" ? JSON.stringify(state.cuerpos)
+                       : (ev.tipo==="text"||ev.tipo==="textarea") ? (up.text||null) : null;
+      const justificacion = up.just ? up.just.trim() : null;
+      const tieneFiles = up.files && up.files.length;
+      if(textoLibre||justificacion||tieneFiles){
+        evidencias.push({ nombre:ev.nombre, tipoRequerimiento:ev.tipo, justificacion, textoLibre, archivosS3:[] });
+      }
+    });
+
+    const res=await fetch(API_BASE+"/tickets",{
+      method:"POST", credentials:"include",
+      headers: authHeaders({"Content-Type":"application/json"}),
+      body: JSON.stringify({
+        tipoTicket: state.tipo, familia: state.familia,
+        nombreContacto: state.contacto, telefono: state.telefono,
+        emailContacto: state.email1, numeroFactura: state.factura,
+        codigoProducto: state.producto, numeroSerie: state.serie,
+        descripcion: state.descripcion, evidencias,
+      }),
+    });
+    if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(e.error||"No se pudo crear el ticket."); }
+    const { ticketId } = await res.json();
+
+    // 2) Subir cada archivo: presigned-url → PUT a S3 → confirm
+    let subidos=0, fallidos=0;
+    for(let idx=0; idx<evs.length; idx++){
+      const ev=evs[idx]; const up=state.uploads[idx]||{};
+      for(const file of (up.files||[])){
+        try{
+          const mime=file.type||"application/octet-stream";
+          const pr=await fetch(API_BASE+"/upload/presigned-url",{
+            method:"POST", credentials:"include",
+            headers: authHeaders({"Content-Type":"application/json"}),
+            body: JSON.stringify({ ticketId, nombreEvidencia:ev.nombre, tipoEvidencia:ev.tipo,
+              mimeType:mime, fileSize:file.size, filename:file.name }),
+          });
+          if(!pr.ok) throw new Error("presigned-url "+pr.status);
+          const { uploadUrl, s3Key } = await pr.json();
+          // PUT directo a S3: NO lleva Authorization (rompería la firma del presigned URL)
+          const put=await fetch(uploadUrl,{ method:"PUT", headers:{"Content-Type":mime}, body:file });
+          if(!put.ok) throw new Error("PUT S3 "+put.status);
+          await fetch(API_BASE+"/upload/confirm",{
+            method:"POST", credentials:"include",
+            headers: authHeaders({"Content-Type":"application/json"}),
+            body: JSON.stringify({ ticketId, nombreEvidencia:ev.nombre, tipoRequerimiento:ev.tipo, s3Key }),
+          });
+          subidos++;
+        }catch(err){ fallidos++; console.error("[upload] falló",ev.nombre,err.message); }
+      }
+    }
+
+    // 3) Esperar el folio de SAP (la creación del ServiceCall es asíncrona)
+    let folio=null, estado="pendiente_sap";
+    for(let i=0;i<6;i++){
+      await new Promise(r=>setTimeout(r,1500));
+      try{
+        const t=await fetch(API_BASE+"/tickets/"+ticketId,{ credentials:"include", headers: authHeaders() });
+        if(t.ok){ const d=await t.json(); estado=d.ticket?.estado||estado; folio=d.ticket?.folio_sap||null;
+          if(folio||estado==="error_sap") break; }
+      }catch(e){}
+    }
+
+    state.resultado={ ticketId, folio, estado, subidos, fallidos };
+    state.step=5; render();
+  }catch(err){
+    alert("No se pudo enviar la solicitud: "+err.message+"\nIntenta de nuevo.");
+    state.step=4; render();
+  }
+}
 function renderSuccess(){
-  const folio="GPA-"+new Date().getFullYear()+"-"+String(Math.floor(Math.random()*90000)+10000);
+  const r=state.resultado;
   const emails=[state.email1,state.email2,state.email3].filter(Boolean);
+  // Demo (sin backend): folio simulado.
+  const folioReal = r ? r.folio : ("GPA-"+new Date().getFullYear()+"-"+String(Math.floor(Math.random()*90000)+10000));
+  const folioHTML = (r && !r.folio)
+    ? `<div class="success-folio" style="font-size:15px">Tu solicitud quedó registrada${r.estado==="error_sap"?"":" y se está procesando en SAP"}.</div>`
+    : `<div class="success-folio">${folioReal}</div>`;
+  const uploadsHTML = (r && r.fallidos)
+    ? `<div class="alert alert-warn" style="text-align:left;max-width:380px;margin:0 auto 12px"><span class="alert-icon">⚠️</span><span>${r.fallidos} archivo(s) no se pudieron subir. Postventa podría solicitártelos de nuevo.</span></div>`
+    : "";
   return`<div class="card"><div class="success-screen">
     <div class="success-icon">✓</div>
     <div style="font-size:13px;color:var(--gris-txt)">Solicitud enviada exitosamente</div>
-    <div class="success-folio">${folio}</div>
+    ${folioHTML}
+    ${uploadsHTML}
     <div class="success-desc">Se enviará confirmación a:<br>${emails.map(e=>`<strong>${e}</strong>`).join(" · ")}<br><br>El equipo de Postventa se pondrá en contacto contigo <strong>a más tardar en 1 día hábil</strong> para validar la información e informarte los pasos procedentes a seguir.</div>
     <div class="alert alert-info" style="text-align:left;max-width:380px;margin:0 auto 20px"><span class="alert-icon">📞</span><span>¿Tienes dudas? Llámanos al <strong>800 APOYO GPA</strong> (800 276 9647)</span></div>
     <button class="btn btn-primary" onclick="resetApp()">+ Levantar otra solicitud</button>
@@ -900,7 +999,7 @@ function handleFile(idx,input,accept){
   state.uploads[idx]=state.uploads[idx]||{};state.uploads[idx].files=state.uploads[idx].files||[];
   const ev=getEvidencias()[idx];const max=ev?.tipo==="file1"?1:3;
   if(state.uploads[idx].files.length>=max)return;
-  state.uploads[idx].files.push(file.name);clearEvErr(idx);
+  state.uploads[idx].files.push(file);clearEvErr(idx);
   const item=document.getElementById("ev_item_"+idx);
   if(item&&ev){const w=item.querySelector(".upload-area");if(w){const t=document.createElement("div");t.innerHTML=renderUpload(ev,idx,ev[state.tipo]);w.replaceWith(t.firstElementChild);}}
 }
