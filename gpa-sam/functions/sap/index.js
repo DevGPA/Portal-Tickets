@@ -69,6 +69,12 @@ async function withRetry(fn, label) {
   throw last;
 }
 
+// Usuario SAP B1 (Users.InternalKey) al que se asignan los tickets del portal.
+// 184 = usuario 'procesos' (Andres Orozco). Override vía env var SAP_ASSIGNEE_CODE.
+const ASSIGNEE_CODE = parseInt(process.env.SAP_ASSIGNEE_CODE || '184', 10);
+// Tipo de Llamada (CallType) obligatorio en la validación custom de su SAP. 17 = valor en uso.
+const CALL_TYPE = parseInt(process.env.SAP_CALL_TYPE || '17', 10);
+
 const TIPO_LABEL = { gar: 'Garantía', dev: 'Devolución', at: 'Apoyo Técnico' };
 const MAP_STATUS = { Open: 'en_revision', Pending: 'en_proceso', Closed: 'cerrado', Cancelled: 'rechazado' };
 const folio = (n) => `GPA-${new Date().getFullYear()}-${String(n).padStart(5,'0')}`;
@@ -93,6 +99,10 @@ async function crearTicket(p) {
 
     const body = {
       CustomerCode: p.sapClienteId,
+      AssigneeCode: ASSIGNEE_CODE,
+      ItemCode: p.codigoProducto,       // obligatorio (SysGPA-191-02: "campo Artículo")
+      CallType: CALL_TYPE,              // obligatorio (SysGPA-191-03: "Tipo de Llamada")
+      U_TicketUsr: 'CLIENTE',           // obligatorio ("Usuario Ticket")
       Subject: `${TIPO_LABEL[p.tipoTicket]||p.tipoTicket} — ${p.familia} — Fac: ${p.numeroFactura}`,
       Description: detalle,
     };
@@ -100,7 +110,7 @@ async function crearTicket(p) {
     // así que solo se envía si es un entero válido (si no, se omite).
     if (/^\d+$/.test(String(p.ejecutivoGpa || ''))) body.TechnicianCode = parseInt(p.ejecutivoGpa, 10);
     const data = await withRetry(() => sapRequest('POST', '/ServiceCalls', body), 'crearTicket');
-    return { success: true, folio: folio(data.DocNum), sapId: String(data.DocEntry) };
+    return { success: true, folio: folio(data.DocNum), sapId: String(data.ServiceCallID) };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus||502, error: e.message };
   }
@@ -110,7 +120,7 @@ async function consultarTicket(p) {
   if (!p?.sapId) return { success: false, errorCode: 400, error: 'sapId requerido.' };
   try {
     const data = await withRetry(() => sapRequest('GET', `/ServiceCalls(${encodeURIComponent(p.sapId)})`), 'consultarTicket');
-    return { success: true, status: MAP_STATUS[data.Status]||'en_revision', folio: folio(data.DocNum), sapId: String(data.DocEntry) };
+    return { success: true, status: MAP_STATUS[data.Status]||'en_revision', folio: folio(data.DocNum), sapId: String(data.ServiceCallID) };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus||502, error: e.message };
   }
