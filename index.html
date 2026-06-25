@@ -942,7 +942,7 @@ async function fetchFacturasAC(query) {
     if (API_BASE && currentUser) {
       const res  = await fetch(API_BASE + '/sap/buscar-facturas', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ query }),
       });
       const data = await res.json();
@@ -1072,7 +1072,7 @@ async function buscarArticulosFactura() {
       const res = await fetch(API_BASE + '/sap/articulos-factura', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ docNum: factura }),
       });
       const data = await res.json();
@@ -1231,22 +1231,20 @@ async function solicitarRecuperacion() {
 const API_BASE = 'https://7su23pkku2.execute-api.us-east-1.amazonaws.com/Prod';
 
 let currentUser = null;
+let authToken = sessionStorage.getItem('gpa_token') || null;
+
+// Headers con el Bearer token (auth cross-site; la cookie SameSite=Strict no
+// viaja entre amplifyapp.com y execute-api.amazonaws.com). Mezcla headers extra.
+function authHeaders(extra = {}) {
+  return authToken ? { ...extra, 'Authorization': 'Bearer ' + authToken } : { ...extra };
+}
 
 async function checkSession() {
-  // Intentar recuperar sesión existente
-  const saved = sessionStorage.getItem('gpa_user');
-  if (saved) {
-    try {
-      currentUser = JSON.parse(saved);
-      showApp();
-      return;
-    } catch(e) { sessionStorage.removeItem('gpa_user'); }
-  }
-
-  // Si hay API configurado, verificar con el backend
+  // Con API: la sesión es válida solo si el token verifica contra /auth/me.
   if (API_BASE) {
+    if (!authToken) { showLogin(); return; }
     try {
-      const res = await fetch(API_BASE + '/auth/me', { credentials: 'include' });
+      const res = await fetch(API_BASE + '/auth/me', { headers: authHeaders() });
       if (res.ok) {
         currentUser = await res.json();
         sessionStorage.setItem('gpa_user', JSON.stringify(currentUser));
@@ -1254,9 +1252,20 @@ async function checkSession() {
         return;
       }
     } catch(e) {}
+    // Token inválido o expirado → limpiar y pedir login
+    authToken = null;
+    sessionStorage.removeItem('gpa_token');
+    sessionStorage.removeItem('gpa_user');
+    showLogin();
+    return;
   }
 
-  // Sin sesión → mostrar login
+  // Sin API (demo): usar la sesión guardada.
+  const saved = sessionStorage.getItem('gpa_user');
+  if (saved) {
+    try { currentUser = JSON.parse(saved); showApp(); return; }
+    catch(e) { sessionStorage.removeItem('gpa_user'); }
+  }
   showLogin();
 }
 
@@ -1293,6 +1302,8 @@ async function doLogin() {
 
       if (res.ok) {
         const data = await res.json();
+        authToken = data.token || null;
+        if (authToken) sessionStorage.setItem('gpa_token', authToken);
         currentUser = data.user;
         sessionStorage.setItem('gpa_user', JSON.stringify(currentUser));
         showApp();
@@ -1326,10 +1337,12 @@ async function doLogin() {
 
 function logout() {
   sessionStorage.removeItem('gpa_user');
+  sessionStorage.removeItem('gpa_token');
   currentUser = null;
-  if (API_BASE) {
-    fetch(API_BASE + '/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+  if (API_BASE && authToken) {
+    fetch(API_BASE + '/auth/logout', { method: 'POST', headers: authHeaders() }).catch(() => {});
   }
+  authToken = null;
   // Limpiar estado del portal
   resetApp();
   showLogin();
@@ -1467,7 +1480,7 @@ async function cargarTickets(page = 1) {
       const params = new URLSearchParams({ page, limit: 10 });
       if (consultaState.filtroTipo)     params.append('tipo',   consultaState.filtroTipo);
       if (consultaState.filtroBusqueda) params.append('search', consultaState.filtroBusqueda);
-      const res  = await fetch(API_BASE + '/tickets?' + params, { credentials: 'include' });
+      const res  = await fetch(API_BASE + '/tickets?' + params, { credentials: 'include', headers: authHeaders() });
       const data = await res.json();
       tickets = data.data || [];
       consultaState.totalPages = data.pagination?.pages || 1;
@@ -1566,7 +1579,7 @@ async function abrirDetalle(ticketId) {
     let ticket, evidencias = [];
 
     if (API_BASE) {
-      const res  = await fetch(API_BASE + `/tickets/${ticketId}`, { credentials: 'include' });
+      const res  = await fetch(API_BASE + `/tickets/${ticketId}`, { credentials: 'include', headers: authHeaders() });
       const data = await res.json();
       ticket     = data.ticket;
       evidencias = data.evidencias || [];
@@ -1665,7 +1678,7 @@ function volverALista() {
 async function descargarDocumento(ticketId, key64, nombre) {
   try {
     if (API_BASE) {
-      const res  = await fetch(API_BASE + `/tickets/${ticketId}/evidencias/${key64}/url`, { credentials:'include' });
+      const res  = await fetch(API_BASE + `/tickets/${ticketId}/evidencias/${key64}/url`, { credentials:'include', headers: authHeaders() });
       const data = await res.json();
       if (data.url) {
         const a = document.createElement('a');
@@ -1679,7 +1692,7 @@ async function descargarDocumento(ticketId, key64, nombre) {
 async function verArchivo(ticketId, key64) {
   try {
     if (API_BASE) {
-      const res  = await fetch(API_BASE + `/tickets/${ticketId}/evidencias/${key64}/url`, { credentials: 'include' });
+      const res  = await fetch(API_BASE + `/tickets/${ticketId}/evidencias/${key64}/url`, { credentials: 'include', headers: authHeaders() });
       const data = await res.json();
       if (data.url) window.open(data.url, '_blank');
     } else {

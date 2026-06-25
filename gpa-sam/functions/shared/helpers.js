@@ -35,11 +35,17 @@ function serverError(msg = 'Error interno del servidor.') {
 
 // ── JWT / Autenticación ───────────────────────────────────────────────────────
 function verifyToken(event) {
+  // 1) Authorization: Bearer <token> (auth principal para SPA cross-site)
+  const authHeader = event.headers?.Authorization || event.headers?.authorization || '';
+  const bearer = authHeader.match(/^Bearer\s+(.+)$/i);
+  // 2) Fallback: cookie gpa_token (compatibilidad)
   const cookieHeader = event.headers?.Cookie || event.headers?.cookie || '';
-  const match = cookieHeader.match(/gpa_token=([^;]+)/);
-  if (!match) return null;
+  const cookieMatch = cookieHeader.match(/gpa_token=([^;]+)/);
+
+  const token = bearer?.[1] || cookieMatch?.[1];
+  if (!token) return null;
   try {
-    return jwt.verify(match[1], process.env.JWT_SECRET);
+    return jwt.verify(token, process.env.JWT_SECRET);
   } catch {
     return null;
   }

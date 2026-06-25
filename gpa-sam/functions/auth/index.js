@@ -61,8 +61,10 @@ async function login(event) {
     { expiresIn: '8h' }
   );
 
+  // token en el body → el SPA lo guarda y lo manda como Authorization: Bearer
+  // (la cookie se mantiene por compatibilidad, pero no funciona cross-site).
   return ok(
-    { user: { id: user.id, email: user.email, nombreEmpresa: user.nombre_empresa, ejecutivoGpa: user.ejecutivo_gpa } },
+    { token, user: { id: user.id, email: user.email, nombreEmpresa: user.nombre_empresa, ejecutivoGpa: user.ejecutivo_gpa } },
     { 'Set-Cookie': COOKIE(token) }
   );
 }
