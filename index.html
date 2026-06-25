@@ -695,10 +695,14 @@ function renderStep2(){
       ${Object.keys(FAMILIAS_CON_DEV).map(f=>{
         const fam=FAMILIAS_CON_DEV[f];
         if(!fam.evidencias.some(e=>e[state.tipo]!=="N/A"))return"";
-        return`<button class="familia-chip${state.familia===f?" selected":""}" onclick="selectFamilia('${f}',this)"><span class="fam-icon">${fam.icon}</span><span>${f}</span></button>`;
+        return`<button class="familia-chip${state.familia===f?" selected":""}" style="cursor:default" onclick="event.preventDefault()"><span class="fam-icon">${fam.icon}</span><span>${f}</span></button>`;
       }).join("")}
     </div>
-    <div class="field-error" id="e_familia" style="margin-top:8px">Selecciona la familia de producto</div>
+    <div class="field-error" id="e_familia" style="margin-top:8px">La familia se asigna automáticamente al seleccionar el producto</div>
+    <div id="avisoOtrosProductosAT" class="alert alert-warn" style="display:none;margin-top:12px">
+      <span class="alert-icon">⚠️</span>
+      <span>GPA no puede acudir a visitas de algún producto distinto a Filtros Comerciales, Motobombas de velocidad variable, bombas de calor, automatización, calentadores de gas/Calderas, Generadores de Cloro/Ozonificadores, Cubiertas Automáticas, Fibra Óptica Constelación, Recubrimiento. El departamento de Servicio Postventa evaluará el caso.</span>
+    </div>
     <div class="divider"></div>
     <div class="field"><label>Descripción del problema <span class="req">*</span></label>
       <textarea id="f_desc" maxlength="254" placeholder="Describe brevemente la falla o solicitud (máximo 254 caracteres)…"
@@ -1228,28 +1232,102 @@ async function buscarArticulosFactura() {
   }
 }
 
+// Mapa ItmsGrpCod → nombre de familia. Se llena en tiempo real desde
+// GET /sap/familias (la Lambda obtenerFamilias, basada en OITB) al iniciar sesión.
+// Mientras carga, queda vacío y todo cae temporalmente en 'Otros Productos'.
+let FAMILIA_ITMSGRP_MAP = {};
+
+// Familias para las que SÍ aplica visita de Apoyo Técnico presencial.
+const FAMILIAS_CON_VISITA_AT = [
+  'Filtros','Motobombas de Velocidad Variable','Bombas de Calor','Automatización',
+  'Calentadores de Gas / Calderas','Generadores de Cloro / Ozonificadores',
+  'Cubiertas Automáticas','Fibra Óptica Constelación','Recubrimiento',
+];
+
+function resolverFamilia(itmsGrpCod) {
+  if (!itmsGrpCod) return 'Otros Productos';
+  return FAMILIA_ITMSGRP_MAP[itmsGrpCod] || 'Otros Productos';
+}
+
+// Carga el catálogo real de familias desde SAP (OITB) vía el backend.
+// Se llama una vez al iniciar sesión — el resultado se cachea en memoria
+// durante toda la sesión del portal.
+async function cargarFamiliasMap() {
+  if (!API_BASE) return; // En modo demo no hay backend que consultar
+  try {
+    const res = await fetch(API_BASE + '/sap/familias', { headers: authHeaders() });
+    if (!res.ok) { console.warn('[Portal] No se pudo cargar /sap/familias:', res.status); return; }
+    const data = await res.json();
+    if (!data.success || !Array.isArray(data.familias)) return;
+
+    const mapa = {};
+    data.familias.forEach(f => {
+      // itmsGrpCod = Number en SAP (OITB,ItmsGrpCod) — clave de lookup
+      // descripcion = U_Descripcion si existe, si no GroupName
+      if (f.itmsGrpCod != null) mapa[f.itmsGrpCod] = f.descripcion || f.groupName;
+    });
+    FAMILIA_ITMSGRP_MAP = mapa;
+  } catch(e) {
+    console.warn('[Portal] Error cargando familias de SAP:', e.message);
+  }
+}
+
 function seleccionarArticulo(itemCode) {
   if (!itemCode) {
     state.producto = '';
     state.itemCode = '';
     state.tipoGarantia = null;
+    state.familia = null;
     document.getElementById('tipoGarantiaInfo').style.display='none';
+    ocultarAvisoOtrosProductosAT();
     return;
   }
   const art = state.articulosFactura.find(a => a.itemCode === itemCode);
   if (!art) return;
-  state.itemCode    = art.itemCode;
-  state.producto    = art.itemCode + ' — ' + art.descripcion;
+  state.itemCode     = art.itemCode;
+  state.producto     = art.itemCode + ' — ' + art.descripcion;
   state.tipoGarantia = art.tipoGarantia || null;
+
+  // Auto-asignar familia desde ItmsGrpCod — el cliente ya no la elige manualmente
+  const familiaResuelta = resolverFamilia(art.itmsGrpCod);
+  state.familia = familiaResuelta;
   clearErr('e_producto');
-  // Mostrar tipo de garantía si aplica (informativo, el cliente no lo edita)
+  clearErr('e_familia');
+
+  // Feedback visual: garantía + familia detectada
   const info = document.getElementById('tipoGarantiaInfo');
-  if (info && art.tipoGarantia) {
-    info.style.display='block';
-    info.textContent='✓ Tipo de garantía: ' + art.tipoGarantia;
-  } else if (info) {
-    info.style.display='none';
+  if (info) {
+    const parts = [];
+    if (art.tipoGarantia) parts.push('Tipo de garantía: ' + art.tipoGarantia);
+    parts.push('Familia: ' + familiaResuelta);
+    info.style.display = 'block';
+    info.textContent = '✓ ' + parts.join(' · ');
   }
+
+  // Aviso de Apoyo Técnico si la familia no admite visita presencial
+  if (state.tipo === 'at' && !FAMILIAS_CON_VISITA_AT.includes(familiaResuelta)) {
+    mostrarAvisoOtrosProductosAT();
+  } else {
+    ocultarAvisoOtrosProductosAT();
+  }
+
+  actualizarFamiliaChips(familiaResuelta);
+}
+
+function actualizarFamiliaChips(familiaSeleccionada) {
+  document.querySelectorAll('.familia-chip').forEach(chip => {
+    const nombre = chip.querySelector('span:last-child')?.textContent;
+    chip.classList.toggle('selected', nombre === familiaSeleccionada);
+  });
+}
+
+function mostrarAvisoOtrosProductosAT() {
+  const el = document.getElementById('avisoOtrosProductosAT');
+  if (el) el.style.display = 'flex';
+}
+function ocultarAvisoOtrosProductosAT() {
+  const el = document.getElementById('avisoOtrosProductosAT');
+  if (el) el.style.display = 'none';
 }
 
 // ── Artículos de demo (sin backend) ──────────────────────────────────────────
@@ -1474,6 +1552,8 @@ function showApp() {
       nameEl.textContent = (currentUser.nombreEmpresa || currentUser.email || '') + rol;
     }
   }
+  // Catálogo real de familias (OITB) — una sola vez por sesión, en segundo plano
+  cargarFamiliasMap();
 }
 
 // Arrancar verificando sesión al cargar
