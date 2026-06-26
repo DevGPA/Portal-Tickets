@@ -167,13 +167,12 @@ async function createTicket(event) {
     client.release();
   }
 
-  // Responder de inmediato — SAP y correos van asíncronos
-  const res = accepted({ ticketId, estado: 'pendiente_sap' });
-
-  // Proceso asíncrono (no bloquea la respuesta)
-  setImmediate(() => procesarTicketSAP(ticketId, b, user).catch(console.error));
-
-  return res;
+  // Crear el ServiceCall en SAP de forma SÍNCRONA: en Lambda el trabajo posterior
+  // a la respuesta (setImmediate) no se ejecuta de forma confiable y dejaba el
+  // ticket atascado en 'pendiente_sap'. Si SAP falla, el ticket queda 'error_sap'
+  // pero la respuesta es exitosa (el ticket ya existe en BD; Postventa lo revisa).
+  const sap = await procesarTicketSAP(ticketId, b, user);
+  return accepted({ ticketId, estado: sap.estado, folio: sap.folio || null });
 }
 
 async function procesarTicketSAP(ticketId, b, user) {
@@ -205,14 +204,18 @@ async function procesarTicketSAP(ticketId, b, user) {
         [sapRes.folio, sapRes.sapId, ticketId]
       );
       console.log(`[tickets] SAP ticket creado: ${sapRes.folio}`);
-      await enviarCorreos(ticketId, b, sapRes.folio);
+      // El correo es best-effort: un fallo de SMTP NO debe marcar el ticket como error.
+      await enviarCorreos(ticketId, b, sapRes.folio).catch(e => console.error('[tickets] correos:', e.message));
+      return { estado: 'creado', folio: sapRes.folio, sapId: sapRes.sapId };
     } else {
       await pool.query(`UPDATE tickets SET estado='error_sap' WHERE id=$1`, [ticketId]);
       console.error('[tickets] SAP error:', sapRes.error);
+      return { estado: 'error_sap', error: sapRes.error };
     }
   } catch (err) {
     await pool.query(`UPDATE tickets SET estado='error_sap' WHERE id=$1`, [ticketId]).catch(() => {});
     console.error('[tickets] SAP invocation error:', err.message);
+    return { estado: 'error_sap', error: err.message };
   }
 }
 
@@ -220,6 +223,9 @@ async function enviarCorreos(ticketId, b, folio) {
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST, port: parseInt(process.env.SMTP_PORT), secure: false,
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
+    // Cotas para que un host SMTP inalcanzable (p. ej. placeholder) no cuelgue
+    // el flujo síncrono de creación del ticket.
+    connectionTimeout: 7000, greetingTimeout: 7000, socketTimeout: 7000,
   });
   const tipo = TIPO_LABEL[b.tipoTicket] || b.tipoTicket;
 

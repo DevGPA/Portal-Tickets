@@ -746,6 +746,7 @@ function filterAC(val){
 }
 function selectProducto(c,d){
   state.producto=c+" — "+d;
+  state.itemCode=c;
   const inp=document.getElementById("f_producto");if(inp)inp.value=state.producto;
   const drop=document.getElementById("acDrop");if(drop)drop.className="autocomplete-drop";
   clearErr("e_producto");
@@ -936,7 +937,7 @@ async function enviarTicket(){
         tipoTicket: state.tipo, familia: state.familia,
         nombreContacto: state.contacto, telefono: state.telefono,
         emailContacto: state.email1, numeroFactura: state.factura,
-        codigoProducto: state.producto, numeroSerie: state.serie,
+        codigoProducto: state.itemCode || (state.producto||'').split(' — ')[0].trim(), numeroSerie: state.serie,
         cantidad: state.cantidad,
         descripcion: state.descripcion, evidencias,
       }),
