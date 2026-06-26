@@ -210,6 +210,11 @@ Resources:
           Properties:
             Path: /sap/articulos-factura
             Method: POST
+        Familias:
+          Type: Api
+          Properties:
+            Path: /sap/familias
+            Method: GET
 
   # ── Upload: presigned URL + confirmar subida ─────────────────────────────────
   UploadFunction:

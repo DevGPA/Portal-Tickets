@@ -26,6 +26,8 @@ exports.handler = async (event) => {
     if (method === 'POST' && path.endsWith('/sap/buscar-facturas'))    return buscarFacturas(event);
     // POST /sap/articulos-factura
     if (method === 'POST' && path.endsWith('/sap/articulos-factura'))  return articulosFactura(event);
+    // GET  /sap/familias
+    if (method === 'GET'  && path.endsWith('/sap/familias'))           return familias(event);
     // POST /tickets
     if (method === 'POST' && /\/tickets$/.test(path))       return createTicket(event);
     // GET  /tickets
@@ -93,6 +95,16 @@ async function articulosFactura(event) {
   if (!cardCode) return unauthorized();
 
   const data = await invokeSAP('obtenerArticulosFactura', { cardCode, docNum: String(docNum).trim() });
+  return ok(data);
+}
+
+// ── GET /sap/familias ─────────────────────────────────────────────────────────
+// Catálogo de familias (grupos de artículos OITB) para mapear ItmsGrpCod → familia.
+async function familias(event) {
+  const { response } = requireAuth(event);
+  if (response) return response;
+
+  const data = await invokeSAP('obtenerFamilias', {});
   return ok(data);
 }
 

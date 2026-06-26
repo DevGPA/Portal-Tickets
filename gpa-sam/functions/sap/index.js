@@ -212,17 +212,19 @@ async function obtenerArticulosFactura(p) {
       lineas
         .filter(l => l.ItemCode && l.ItemCode.trim())
         .map(async (linea) => {
-          let tipoGarantia = null;
+          let tipoGarantia = null, itmsGrpCod = null;
           try {
             const item = await sapRequest('GET', `/Items('${encodeURIComponent(linea.ItemCode)}')`);
             tipoGarantia = item.U_TipoGarantia || null;
+            itmsGrpCod   = item.ItemsGroupCode ?? null;   // OITM.ItmsGrpCod → para resolver familia
           } catch (e) {
-            console.warn(`No se pudo obtener U_TipoGarantia para ${linea.ItemCode}: ${e.message}`);
+            console.warn(`No se pudo obtener el maestro de ${linea.ItemCode}: ${e.message}`);
           }
           return {
             itemCode:    linea.ItemCode,
             descripcion: linea.ItemDescription || linea.ItemCode,
             tipoGarantia,
+            itmsGrpCod,
             cantidad:    linea.Quantity || 1,
           };
         })
@@ -231,6 +233,27 @@ async function obtenerArticulosFactura(p) {
     return { success: true, docNum: p.docNum, articulos };
   } catch (e) {
     if (e.sapStatus === 404) return { success: false, errorCode: 404, error: `Factura ${p.docNum} no encontrada.` };
+    return { success: false, errorCode: e.sapStatus || 502, error: e.message };
+  }
+}
+
+// ── Familias (grupos de artículos, OITB / entidad ItemGroups) ─────────────────
+// Respuesta: { success, familias: [{ itmsGrpCod, groupName, descripcion }] }
+// El frontend arma FAMILIA_ITMSGRP_MAP[itmsGrpCod] = descripcion || groupName.
+async function obtenerFamilias() {
+  try {
+    const familias = [];
+    let path = '/ItemGroups';            // sin $select para incluir U_Descripcion si existe
+    for (let i = 0; i < 25 && path; i++) {   // pagina via nextLink (cap defensivo)
+      const data = await withRetry(() => sapRequest('GET', path), 'obtenerFamilias');
+      for (const g of (data?.value || [])) {
+        familias.push({ itmsGrpCod: g.Number, groupName: g.GroupName, descripcion: g.U_Descripcion || null });
+      }
+      const next = data['@odata.nextLink'] || data['odata.nextLink'];
+      path = next ? (next.startsWith('/') ? next : '/' + next) : null;
+    }
+    return { success: true, familias };
+  } catch (e) {
     return { success: false, errorCode: e.sapStatus || 502, error: e.message };
   }
 }
@@ -244,6 +267,7 @@ exports.handler = async (event) => {
     case 'verificarCliente':         return verificarCliente(event.payload);
     case 'buscarFacturas':           return buscarFacturas(event.payload);
     case 'obtenerArticulosFactura':  return obtenerArticulosFactura(event.payload);
+    case 'obtenerFamilias':          return obtenerFamilias();
     default: return { success: false, errorCode: 400, error: `Acción desconocida: "${event.action}"` };
   }
 };
