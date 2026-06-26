@@ -416,7 +416,7 @@ const FAMILIAS={
       {nombre:"Foto número de serie (Hayward / filtros comerciales)",tipo:"file3",gar:"OJ",dev:"N/A",at:"N/A"},
       {nombre:"Dirección de la instalación",tipo:"text",placeholder:"Calle, número, colonia, ciudad",gar:"N/A",dev:"N/A",at:"O"},
     ]},
-  "Motobombas de Velocidad Variable":{icon:"⚙️",nota_at:null,evidencias:[
+  "Bombas p/Filtros":{icon:"⚙️",nota_at:null,evidencias:[
     {nombre:"Factura",tipo:"file1",gar:"O",dev:"O",at:"O"},
     {nombre:"Video de la falla",tipo:"file3",gar:"O",dev:"N/A",at:"N/A"},
     {nombre:"Foto etiqueta de motobomba",tipo:"file3",gar:"O",dev:"N/A",at:"O",ejemploUrl:""},
@@ -535,9 +535,12 @@ const FAMILIAS={
     {nombre:"Descripción del proceso de aplicación del adhesivo",tipo:"textarea",placeholder:"Describe: preparación de superficie, cantidades, tiempos de mezcla, condiciones ambientales.",subnote:"📋 Indispensable para evaluar si el desprendimiento es atribuible al adhesivo o al proceso.",gar:"N/A",dev:"N/A",at:"OJ"},
     {nombre:"Dirección de la obra",tipo:"text",placeholder:"Calle, número, colonia, ciudad",gar:"N/A",dev:"N/A",at:"O"},
   ]},
-  "Otros Productos":{icon:"📦",nota_at:"No aplica visita técnica",nota_at_tipo:"warn",evidencias:[
-    {nombre:"Factura",tipo:"file1",gar:"O",dev:"O",at:"N/A"},
-    {nombre:"Fotos/Video de la falla",tipo:"file3",gar:"O",dev:"N/A",at:"N/A"},
+  "Otros Productos":{icon:"📦",nota_at:"⚠️ Esta familia no forma parte del catálogo de visitas técnicas presenciales de GPA. El departamento de Postventa evaluará el caso.",nota_at_tipo:"warn",evidencias:[
+    {nombre:"Factura",tipo:"file1",gar:"O",dev:"O",at:"O"},
+    {nombre:"Video de la instalación y cuarto de máquinas",tipo:"file3",gar:"O",dev:"N/A",at:"O"},
+    {nombre:"Fotos del producto",tipo:"file3",gar:"O",dev:"N/A",at:"O"},
+    {nombre:"Foto del producto en buen estado",tipo:"file3",gar:"N/A",dev:"OJ",at:"N/A"},
+    {nombre:"Foto de la etiqueta con lote, código y/o número de serie",tipo:"file3",gar:"OJ",dev:"N/A",at:"OJ"},
   ]},
 };
 
@@ -701,7 +704,15 @@ function renderStep2(){
     <div class="field-error" id="e_familia" style="margin-top:8px">La familia se asigna automáticamente al seleccionar el producto</div>
     <div id="avisoOtrosProductosAT" class="alert alert-warn" style="display:none;margin-top:12px">
       <span class="alert-icon">⚠️</span>
-      <span>GPA no puede acudir a visitas de algún producto distinto a Filtros Comerciales, Motobombas de velocidad variable, bombas de calor, automatización, calentadores de gas/Calderas, Generadores de Cloro/Ozonificadores, Cubiertas Automáticas, Fibra Óptica Constelación, Recubrimiento. El departamento de Servicio Postventa evaluará el caso.</span>
+      <span>GPA no puede acudir a visitas de algún producto distinto a Filtros Comerciales, Bombas p/Filtros, bombas de calor, automatización, calentadores de gas/Calderas, Generadores de Cloro/Ozonificadores, Cubiertas Automáticas, Fibra Óptica Constelación, Recubrimiento. El departamento de Servicio Postventa evaluará el caso.</span>
+    </div>
+    <div id="avisoBombasFiltrosAT" class="alert alert-warn" style="display:none;margin-top:12px">
+      <span class="alert-icon">⚠️</span>
+      <span>Solo realizamos visitas técnicas a motobombas de velocidad variable. El departamento de Postventa revisará el caso.</span>
+    </div>
+    <div id="avisoRecubrimientoDev" class="alert alert-warn" style="display:none;margin-top:12px">
+      <span class="alert-icon">⚠️</span>
+      <span>Las devoluciones de mosaico/recubrimiento deben solicitarse máximo 3 días hábiles posteriores a la fecha de facturación con GPA.</span>
     </div>
     <div class="divider"></div>
     <div class="field"><label>Descripción del problema <span class="req">*</span></label>
@@ -961,13 +972,14 @@ async function enviarTicket(){
       }
     }
 
-    // 3) Esperar el folio de SAP (la creación del ServiceCall es asíncrona)
+    // 3) Esperar el número de ticket (la creación del caso de servicio es asíncrona)
     let folio=null, estado="pendiente_sap";
     for(let i=0;i<6;i++){
       await new Promise(r=>setTimeout(r,1500));
       try{
         const t=await fetch(API_BASE+"/tickets/"+ticketId,{ credentials:"include", headers: authHeaders() });
-        if(t.ok){ const d=await t.json(); estado=d.ticket?.estado||estado; folio=d.ticket?.folio_sap||null;
+        if(t.ok){ const d=await t.json(); estado=d.ticket?.estado||estado;
+          folio=d.ticket?.call_id||d.ticket?.callID||d.ticket?.folio_sap||null;
           if(folio||estado==="error_sap") break; }
       }catch(e){}
     }
@@ -985,8 +997,8 @@ function renderSuccess(){
   // Demo (sin backend): folio simulado.
   const folioReal = r ? r.folio : ("GPA-"+new Date().getFullYear()+"-"+String(Math.floor(Math.random()*90000)+10000));
   const folioHTML = (r && !r.folio)
-    ? `<div class="success-folio" style="font-size:15px">Tu solicitud quedó registrada${r.estado==="error_sap"?"":" y se está procesando en SAP"}.</div>`
-    : `<div class="success-folio">${folioReal}</div>`;
+    ? `<div class="success-folio" style="font-size:15px">${r.estado==="error_sap"?"Tu solicitud quedó registrada.":"Tu solicitud quedó registrada y está siendo procesada, el equipo de Postventa se pondrá en contacto contigo."}</div>`
+    : `<div class="success-folio">No. de Ticket: ${folioReal}</div>`;
   const uploadsHTML = (r && r.fallidos)
     ? `<div class="alert alert-warn" style="text-align:left;max-width:380px;margin:0 auto 12px"><span class="alert-icon">⚠️</span><span>${r.fallidos} archivo(s) no se pudieron subir. Postventa podría solicitártelos de nuevo.</span></div>`
     : "";
@@ -1232,21 +1244,79 @@ async function buscarArticulosFactura() {
   }
 }
 
-// Mapa ItmsGrpCod → nombre de familia. Se llena en tiempo real desde
-// GET /sap/familias (la Lambda obtenerFamilias, basada en OITB) al iniciar sesión.
-// Mientras carga, queda vacío y todo cae temporalmente en 'Otros Productos'.
+// Mapa ItmsGrpCod → nombre de familia tal cual viene de SAP (OITB).
+// Se llena en tiempo real desde GET /sap/familias al iniciar sesión.
 let FAMILIA_ITMSGRP_MAP = {};
 
-// Familias para las que SÍ aplica visita de Apoyo Técnico presencial.
-const FAMILIAS_CON_VISITA_AT = [
-  'Filtros','Motobombas de Velocidad Variable','Bombas de Calor','Automatización',
+// ── Coincidencia flexible SAP ↔ portal ───────────────────────────────────────
+// Los nombres de familia capturados en SAP pueden variar ligeramente respecto
+// a los del portal (acentos, abreviaciones, orden de palabras). En vez de exigir
+// texto idéntico, normalizamos y buscamos contención parcial en ambos sentidos.
+function normalizarTexto(s) {
+  return (s || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .replace(/[^a-z0-9\s]/g, ' ')                      // quita / , . etc → espacio
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Lista oficial de familias del portal (las que tienen evidencias propias en FAMILIAS).
+const FAMILIAS_PORTAL = Object.keys(FAMILIAS).filter(f => f !== 'Otros Productos');
+
+// Empareja el nombre que viene de SAP contra el catálogo de familias del portal.
+// Devuelve el nombre EXACTO del portal (clave de FAMILIAS) o null si no hay match.
+function emparejarFamiliaSAP(nombreSAP) {
+  const n = normalizarTexto(nombreSAP);
+  if (!n) return null;
+  for (const fPortal of FAMILIAS_PORTAL) {
+    const fNorm = normalizarTexto(fPortal);
+    if (n === fNorm || n.includes(fNorm) || fNorm.includes(n)) return fPortal;
+    // Coincidencia por palabras clave compartidas (ej. "reflectores iluminac" vs "reflectores iluminacion")
+    const wordsSAP = n.split(' ').filter(w => w.length > 3);
+    const wordsPortal = fNorm.split(' ').filter(w => w.length > 3);
+    const compartidas = wordsSAP.filter(w => wordsPortal.some(wp => wp.startsWith(w) || w.startsWith(wp)));
+    if (compartidas.length && compartidas.length >= Math.min(wordsSAP.length, wordsPortal.length)) return fPortal;
+  }
+  return null;
+}
+
+function resolverFamilia(itmsGrpCod) {
+  if (!itmsGrpCod) return 'Otros Productos';
+  const nombreSAP = FAMILIA_ITMSGRP_MAP[itmsGrpCod];
+  if (!nombreSAP) return 'Otros Productos';
+  return emparejarFamiliaSAP(nombreSAP) || 'Otros Productos';
+}
+
+// ── Familias válidas por tipo de ticket ───────────────────────────────────────
+// Si la familia resuelta no está en la lista del tipo correspondiente,
+// el ticket se reclasifica como "Otros Productos" para ESE tipo específico.
+const FAMILIAS_VALIDAS_GAR = [
+  'Filtros','Bombas p/Filtros','Bombas de Calor','Automatización',
+  'Mosaico / Recubrimientos','Adhesivos','Productos Químicos',
+  'Reflectores / Iluminación','Cubiertas Solares / De Burbujas',
+  'Calentadores de Gas / Calderas','Generadores de Cloro / Ozonificadores',
+  'Cubiertas Automáticas','Fibra Óptica Constelación','Recubrimiento',
+];
+const FAMILIAS_VALIDAS_DEV = [
+  'Filtros','Bombas p/Filtros','Bombas de Calor','Automatización',
+  'Mosaico / Recubrimientos','Adhesivos','Productos Químicos',
+  'Reflectores / Iluminación','Cubiertas Solares / De Burbujas',
+  'Calentadores de Gas / Calderas','Generadores de Cloro / Ozonificadores',
+  'Recubrimiento',
+];
+const FAMILIAS_VALIDAS_AT = [
+  'Filtros','Bombas p/Filtros','Bombas de Calor','Automatización',
   'Calentadores de Gas / Calderas','Generadores de Cloro / Ozonificadores',
   'Cubiertas Automáticas','Fibra Óptica Constelación','Recubrimiento',
 ];
 
-function resolverFamilia(itmsGrpCod) {
-  if (!itmsGrpCod) return 'Otros Productos';
-  return FAMILIA_ITMSGRP_MAP[itmsGrpCod] || 'Otros Productos';
+function familiaValidaParaTipo(familia, tipo) {
+  const lista = tipo === 'gar' ? FAMILIAS_VALIDAS_GAR
+              : tipo === 'dev' ? FAMILIAS_VALIDAS_DEV
+              : tipo === 'at'  ? FAMILIAS_VALIDAS_AT : [];
+  return lista.includes(familia);
 }
 
 // Carga el catálogo real de familias desde SAP (OITB) vía el backend.
@@ -1263,7 +1333,7 @@ async function cargarFamiliasMap() {
     const mapa = {};
     data.familias.forEach(f => {
       // itmsGrpCod = Number en SAP (OITB,ItmsGrpCod) — clave de lookup
-      // descripcion = U_Descripcion si existe, si no GroupName
+      // descripcion = U_Descripcion si existe, si no GroupName — texto tal cual SAP
       if (f.itmsGrpCod != null) mapa[f.itmsGrpCod] = f.descripcion || f.groupName;
     });
     FAMILIA_ITMSGRP_MAP = mapa;
@@ -1280,6 +1350,8 @@ function seleccionarArticulo(itemCode) {
     state.familia = null;
     document.getElementById('tipoGarantiaInfo').style.display='none';
     ocultarAvisoOtrosProductosAT();
+    ocultarAvisoBombasFiltrosAT();
+    ocultarAvisoRecubrimientoDev();
     return;
   }
   const art = state.articulosFactura.find(a => a.itemCode === itemCode);
@@ -1288,8 +1360,12 @@ function seleccionarArticulo(itemCode) {
   state.producto     = art.itemCode + ' — ' + art.descripcion;
   state.tipoGarantia = art.tipoGarantia || null;
 
-  // Auto-asignar familia desde ItmsGrpCod — el cliente ya no la elige manualmente
-  const familiaResuelta = resolverFamilia(art.itmsGrpCod);
+  // Auto-asignar familia desde ItmsGrpCod — el cliente ya no la elige manualmente.
+  // Si la familia resuelta no es válida para ESTE tipo de ticket, cae a Otros Productos.
+  let familiaResuelta = resolverFamilia(art.itmsGrpCod);
+  if (familiaResuelta !== 'Otros Productos' && !familiaValidaParaTipo(familiaResuelta, state.tipo)) {
+    familiaResuelta = 'Otros Productos';
+  }
   state.familia = familiaResuelta;
   clearErr('e_producto');
   clearErr('e_familia');
@@ -1304,11 +1380,17 @@ function seleccionarArticulo(itemCode) {
     info.textContent = '✓ ' + parts.join(' · ');
   }
 
-  // Aviso de Apoyo Técnico si la familia no admite visita presencial
-  if (state.tipo === 'at' && !FAMILIAS_CON_VISITA_AT.includes(familiaResuelta)) {
+  // Avisos especiales según familia + tipo de ticket
+  ocultarAvisoOtrosProductosAT();
+  ocultarAvisoBombasFiltrosAT();
+  ocultarAvisoRecubrimientoDev();
+
+  if (state.tipo === 'at' && familiaResuelta === 'Bombas p/Filtros') {
+    mostrarAvisoBombasFiltrosAT();
+  } else if (state.tipo === 'at' && familiaResuelta === 'Otros Productos') {
     mostrarAvisoOtrosProductosAT();
-  } else {
-    ocultarAvisoOtrosProductosAT();
+  } else if (state.tipo === 'dev' && familiaResuelta === 'Recubrimiento') {
+    mostrarAvisoRecubrimientoDev();
   }
 
   actualizarFamiliaChips(familiaResuelta);
@@ -1327,6 +1409,22 @@ function mostrarAvisoOtrosProductosAT() {
 }
 function ocultarAvisoOtrosProductosAT() {
   const el = document.getElementById('avisoOtrosProductosAT');
+  if (el) el.style.display = 'none';
+}
+function mostrarAvisoBombasFiltrosAT() {
+  const el = document.getElementById('avisoBombasFiltrosAT');
+  if (el) el.style.display = 'flex';
+}
+function ocultarAvisoBombasFiltrosAT() {
+  const el = document.getElementById('avisoBombasFiltrosAT');
+  if (el) el.style.display = 'none';
+}
+function mostrarAvisoRecubrimientoDev() {
+  const el = document.getElementById('avisoRecubrimientoDev');
+  if (el) el.style.display = 'flex';
+}
+function ocultarAvisoRecubrimientoDev() {
+  const el = document.getElementById('avisoRecubrimientoDev');
   if (el) el.style.display = 'none';
 }
 
@@ -1759,30 +1857,58 @@ async function abrirDetalle(ticketId) {
   el.innerHTML = `<div class="card"><div style="text-align:center;padding:40px;color:var(--gris-txt);">⏳ Cargando detalle…</div></div>`;
 
   try {
-    let ticket, evidencias = [];
+    let ticket, evidencias = [], documentosLiberados = [];
 
     if (API_BASE) {
       const res  = await fetch(API_BASE + `/tickets/${ticketId}`, { credentials: 'include', headers: authHeaders() });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `No se pudo cargar el ticket (HTTP ${res.status}).`);
+      }
       const data = await res.json();
-      ticket     = data.ticket;
+      ticket = data.ticket;
+      if (!ticket) throw new Error('El ticket no devolvió datos.');
       evidencias = data.evidencias || [];
+      documentosLiberados = data.documentos_liberados || data.documentosLiberados || [];
     } else {
       ticket     = consultaState.tickets.find(t => t.id === ticketId) || {};
       evidencias = ticket.evidencias || [];
+      documentosLiberados = ticket.documentos_liberados || [];
     }
 
-    consultaState.ticketDetalle = { ...ticket, evidencias };
+    consultaState.ticketDetalle = { ...ticket, evidencias, documentos_liberados: documentosLiberados };
     el.innerHTML = renderDetalle(consultaState.ticketDetalle);
   } catch(e) {
-    el.innerHTML = `<div class="card"><div class="alert alert-error"><span class="alert-icon">⚠️</span><span>Error al cargar el detalle.</span></div></div>`;
+    el.innerHTML = `<div class="card">
+      <button class="btn-back-ticket" onclick="volverALista()" style="margin-bottom:16px">← Mis tickets</button>
+      <div class="alert alert-error"><span class="alert-icon">⚠️</span><span>${e.message || 'Error al cargar el detalle.'}</span></div>
+    </div>`;
   }
 }
 
 function renderDetalle(ticket) {
   const si    = getStatusInfo(ticket);
   const tipo  = ticket.tipo_ticket || '';
-  const folio = ticket.folio_sap || '—';
+  const folio = ticket.call_id || ticket.callID || ticket.folio_sap || '—';
   const evs   = ticket.evidencias || [];
+  const docs  = ticket.documentos_liberados || [];
+
+  // Documentos oficiales liberados por GPA (Nota de Crédito, Reporte Técnico, etc.)
+  const docsHtml = docs.length === 0
+    ? ''
+    : `<div class="detalle-section">
+        <div class="detalle-section-title">Documentos</div>
+        <div class="ev-detalle-list">${docs.map(doc => {
+          const tipoLabel = doc.tipo === 'nota_credito' ? '🧾 Nota de Crédito'
+                           : doc.tipo === 'reporte_tecnico' ? '🔧 Reporte Técnico'
+                           : doc.tipo === 'factura' ? '📄 Factura'
+                           : ('📎 ' + (doc.nombre || 'Documento'));
+          return `<div class="ev-detalle-item">
+            <div class="ev-detalle-nombre">${tipoLabel}${doc.nombre && doc.tipo!=='nota_credito' && doc.tipo!=='reporte_tecnico' ? ' — '+doc.nombre : ''}</div>
+            <button class="btn-ver-archivo" onclick="descargarDocumento('${ticket.id}','${doc.key||doc.s3KeyBase64||btoa(doc.s3_key||'')}','${(doc.nombre||tipoLabel).replace(/'/g,"\\'")}')">⬇ Descargar</button>
+          </div>`;
+        }).join('')}</div>
+      </div>`;
 
   const evHtml = evs.length === 0
     ? '<p style="font-size:13px;color:var(--gris-txt)">No hay evidencias registradas.</p>'
@@ -1895,7 +2021,7 @@ function getDemoTickets() {
         {nombre:'Video de la falla',tipo_requerimiento:'O',archivos_s3:['tickets/2026/05/demo-1/video/falla.mp4']},
         {nombre:'9 parámetros de química del agua',tipo_requerimiento:'OJ',archivos_s3:[],justificacion:'El cliente no tiene los datos disponibles en este momento.'},
       ]},
-    { id:'demo-2', folio_sap:'GPA-2026-00038', tipo_ticket:'dev', familia:'Motobombas de Velocidad Variable',
+    { id:'demo-2', folio_sap:'GPA-2026-00038', tipo_ticket:'dev', familia:'Bombas p/Filtros',
       numero_factura:'FAC-09876', codigo_producto:'IW-MOT-1.5', descripcion:'Producto llegó dañado de empaque.',
       sap_status:'Cliente Pendientes', sap_info_pendiente:'Foto del embalaje original y guía de paquetería.',
       creado_en: new Date(Date.now()-7*86400000).toISOString(), evidencias:[]},
