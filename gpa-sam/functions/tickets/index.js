@@ -190,6 +190,7 @@ async function procesarTicketSAP(ticketId, b, user) {
           nombreContacto: b.nombreContacto, telefono: b.telefono,
           emailContacto: b.emailContacto, numeroFactura: b.numeroFactura,
           codigoProducto: b.codigoProducto, numeroSerie: b.numeroSerie || '',
+          tipoGarantia: b.tipoGarantia || null, cantidad: b.cantidad || 1,
           descripcion: b.descripcion,
           sapClienteId: user.sap_cliente_id, ejecutivoGpa: user.ejecutivo_gpa,
         },
@@ -200,13 +201,13 @@ async function procesarTicketSAP(ticketId, b, user) {
 
     if (sapRes.success) {
       await pool.query(
-        `UPDATE tickets SET folio_sap=$1, sap_ticket_id=$2, estado='creado' WHERE id=$3`,
-        [sapRes.folio, sapRes.sapId, ticketId]
+        `UPDATE tickets SET folio_sap=$1, sap_ticket_id=$2, call_id=$3, estado='creado' WHERE id=$4`,
+        [sapRes.folio, sapRes.sapId, sapRes.callId || null, ticketId]
       );
-      console.log(`[tickets] SAP ticket creado: ${sapRes.folio}`);
+      console.log(`[tickets] SAP ticket creado: folio=${sapRes.folio} callId=${sapRes.callId}`);
       // El correo es best-effort: un fallo de SMTP NO debe marcar el ticket como error.
       await enviarCorreos(ticketId, b, sapRes.folio).catch(e => console.error('[tickets] correos:', e.message));
-      return { estado: 'creado', folio: sapRes.folio, sapId: sapRes.sapId };
+      return { estado: 'creado', folio: sapRes.folio, sapId: sapRes.sapId, callId: sapRes.callId };
     } else {
       await pool.query(`UPDATE tickets SET estado='error_sap' WHERE id=$1`, [ticketId]);
       console.error('[tickets] SAP error:', sapRes.error);
@@ -302,9 +303,13 @@ async function getTicket(event) {
     try {
       const sap = await invokeSAP('consultarTicket', { sapId: ticket.sap_ticket_id });
       if (sap?.success) {
+        // Nombres EXACTOS que espera el frontend (getStatusInfo en index.html)
         ticket.sap_status         = sap.status;
         ticket.sap_resolution     = sap.resolution;
         ticket.sap_info_pendiente = sap.infoPendiente;
+        // call_id puede no estar guardado aún en BD si el ticket es viejo —
+        // si SAP lo regresa ahora, lo reflejamos también en la respuesta.
+        if (sap.callId && !ticket.call_id) ticket.call_id = sap.callId;
       }
     } catch (e) { console.error('[tickets] consultarTicket falló:', e.message); }
   }

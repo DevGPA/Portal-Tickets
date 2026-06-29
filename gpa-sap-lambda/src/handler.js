@@ -69,9 +69,16 @@ async function crearTicket(p) {
       sapRequest('POST', '/ServiceCalls', {
         // ── Campos estándar SAP B1 ──────────────────────────────────────────
         CardCode:       p.sapClienteId,
-        Subject:        `${TIPO_LABEL[p.tipoTicket] || p.tipoTicket} — ${p.familia} — Fac: ${p.numeroFactura}`,
-        Description:    p.descripcion,
+        // Subject = Descripción del problema capturada por el cliente en el portal (punto 3)
+        Subject:        p.descripcion,
+        // Description se deja vacío intencionalmente — no debe llevar datos
+        // del cliente/producto ni la descripción (punto 5)
         TechnicianCode: p.ejecutivoGpa,
+        // CallType = mapeo según tipo de ticket + tipo de garantía (punto 7/8,
+        // ya tenía la función mapCallType pero nunca se invocaba)
+        CallType:       mapCallType(p.tipoTicket, p.tipoGarantia),
+        // U_Factura = No. de Factura capturado en el portal (punto 4)
+        U_Factura:      p.numeroFactura,
 
         // ── UDFs GPA — confirmar nombres exactos con el admin SAP ───────────
         U_GPA_TipoSolicitud:  p.tipoTicket,
@@ -85,12 +92,28 @@ async function crearTicket(p) {
       }),
     'crearTicket');
 
-    // SAP devuelve DocEntry (ID interno) y DocNum (número secuencial visible)
-    const folio = buildFolio(data.DocNum);
-    const sapId  = String(data.DocEntry);
+    // SAP devuelve DocEntry (ID interno), DocNum (secuencial del documento)
+    // y CallID (consecutivo oficial de Llamadas de Servicio — punto 2).
+    // CallID viene en la respuesta del POST; si por alguna razón no llega,
+    // se hace una consulta de respaldo inmediata por DocEntry.
+    const sapId = String(data.DocEntry);
+    let callId  = data.CallID != null ? String(data.CallID) : null;
 
-    console.log(`[SAP] Ticket creado: folio=${folio} sapId=${sapId}`);
-    return ok({ folio, sapId });
+    if (!callId) {
+      try {
+        const detalle = await sapRequest('GET', `/ServiceCalls(${encodeURIComponent(sapId)})`);
+        callId = detalle.CallID != null ? String(detalle.CallID) : null;
+      } catch (e) {
+        console.warn('[SAP] No se pudo recuperar CallID por consulta de respaldo:', e.message);
+      }
+    }
+
+    // El folio que ve el cliente en el portal ES el CallID real de SAP.
+    // Si por algún motivo no se obtuvo, se usa el DocEntry como respaldo.
+    const folio = callId || sapId;
+
+    console.log(`[SAP] Ticket creado: folio=${folio} callId=${callId} sapId=${sapId}`);
+    return ok({ folio, sapId, callId });
 
   } catch (err) {
     console.error('[SAP] crearTicket error:', err.message, err.sapBody);
@@ -113,10 +136,18 @@ async function consultarTicket(p) {
       sapRequest('GET', `/ServiceCalls(${encodeURIComponent(p.sapId)})`),
     'consultarTicket');
 
+    const callId = data.CallID != null ? String(data.CallID) : null;
+
+    // status se regresa TAL CUAL viene de SAP (ej. "Abierto", "Cliente Pendientes",
+    // "Proceso Técnico", "NC GPA-Cliente Pend") — el portal hace el mapeo a frases
+    // amigables comparando estos strings literales, no se traduce aquí.
     return ok({
-      status: mapStatus(data.Status),
-      folio:  buildFolio(data.DocNum),
-      sapId:  String(data.DocEntry),
+      status:        data.status,
+      resolution:    data.resolution || null,
+      infoPendiente: data.U_InfoPendienteCliente || null,
+      folio:         callId || String(data.DocEntry),
+      callId,
+      sapId:         String(data.DocEntry),
     });
 
   } catch (err) {
@@ -186,11 +217,8 @@ async function obtenerArticulo(p) {
 function mapCallType(tipoTicket, tipoGarantia) {
   if (tipoTicket === 'dev') return 'DEVOLUCION';
   if (tipoTicket === 'at')  return 'APOYO TECNICO';
-  // Garantía: A1, A2, B1, B2 vienen de OITM,U_TipoGarantia
-  if (tipoTicket === 'gar') {
-    const map = { A1: 'GARANTIA A1', A2: 'GARANTIA A2', B1: 'GARANTIA B1', B2: 'GARANTIA B2' };
-    return map[tipoGarantia] || 'GARANTIA A1'; // fallback
-  }
+  // Garantía: usar el valor EXACTO que viene de OITM,U_TipoGarantia (A1/A2/B1/B2)
+  if (tipoTicket === 'gar') return tipoGarantia || 'A1'; // fallback si no llegó
   return 'APOYO TECNICO';
 }
 

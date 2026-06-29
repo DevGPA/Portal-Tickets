@@ -1826,10 +1826,9 @@ function renderConsultaShell(loading) {
 }
 
 function renderTicketCard(ticket) {
-  const si  = getStatusInfo(ticket);
   const tipo = ticket.tipo_ticket || '';
-  const folio = ticket.folio_sap || ticket.id?.slice(0,8).toUpperCase() || '—';
-  return `<div class="ticket-card status-${si.clase}" onclick="abrirDetalle('${ticket.id}')">
+  const folio = ticket.call_id || ticket.folio_sap || ticket.id?.slice(0,8).toUpperCase() || '—';
+  return `<div class="ticket-card" onclick="abrirDetalle('${ticket.id}')">
     <div class="ticket-info">
       <div class="ticket-folio">${folio}</div>
       <div class="ticket-meta">${ticket.familia || ''} · Fac. ${ticket.numero_factura || ''}</div>
@@ -1837,8 +1836,8 @@ function renderTicketCard(ticket) {
     </div>
     <div class="ticket-right">
       <span class="ticket-tipo ${TIPO_CLASE_MAP[tipo]||''}">${TIPO_LABEL_MAP[tipo]||tipo}</span>
-      <span class="ticket-status-badge ${si.badge}">${si.badgeText}</span>
       <span class="ticket-fecha">${formatFecha(ticket.creado_en)}</span>
+      <span style="font-size:11px;color:var(--gris-txt)">Ver estado →</span>
     </div>
   </div>`;
 }
