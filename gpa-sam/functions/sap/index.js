@@ -94,31 +94,27 @@ async function crearTicket(p) {
   if (missing.length) return { success: false, errorCode: 400, error: `Campos faltantes: ${missing.join(', ')}.` };
 
   try {
-    // INTERINO: los UDFs U_GPA_* aún no existen en el ServiceCall (ORSC) de SAP.
-    // Mientras el admin SAP los crea, se pliegan los datos en Description para no perderlos.
-    // TODO(SAP): cuando existan los UDFs, mover estos campos a sus propiedades U_GPA_*.
-    const detalle = [
-      p.descripcion,
-      '',
-      `Producto: ${p.codigoProducto}`,
-      p.numeroSerie ? `No. Serie: ${p.numeroSerie}` : null,
-      `Contacto: ${p.nombreContacto} · ${p.telefono} · ${p.emailContacto}`,
-    ].filter(v => v !== null).join('\n');
-
+    // Subject = descripción del problema capturada por el cliente en el portal.
+    // SAP B1 limita OSCL.Subject a 100 chars; el texto completo queda en la BD
+    // (tickets.descripcion). Description se deja VACÍO a propósito: Postventa lo
+    // usa para sus notas de seguimiento, no debe llevar datos del cliente.
     const body = {
       CustomerCode: p.sapClienteId,
       AssigneeCode: ASSIGNEE_CODE,
       ItemCode: p.codigoProducto,       // obligatorio (SysGPA-191-02: "campo Artículo")
       CallType: CALL_TYPE,              // obligatorio (SysGPA-191-03: "Tipo de Llamada")
       U_TicketUsr: 'CLIENTE',           // obligatorio ("Usuario Ticket")
-      Subject: `${TIPO_LABEL[p.tipoTicket]||p.tipoTicket} — ${p.familia} — Fac: ${p.numeroFactura}`,
-      Description: detalle,
+      U_Factura: p.numeroFactura,       // No. de factura capturado en el portal
+      Subject: String(p.descripcion || '').slice(0, 100),
     };
     // TechnicianCode en SAP es numérico; el ejecutivo viene como código ("EV01"),
     // así que solo se envía si es un entero válido (si no, se omite).
     if (/^\d+$/.test(String(p.ejecutivoGpa || ''))) body.TechnicianCode = parseInt(p.ejecutivoGpa, 10);
     const data = await withRetry(() => sapRequest('POST', '/ServiceCalls', body), 'crearTicket');
-    return { success: true, folio: folio(data.DocNum), sapId: String(data.ServiceCallID) };
+    // El "CallID" oficial de SAP ES el ServiceCallID (PK de OSCL) — el folio que
+    // el cliente referencia con Postventa. (No existe un campo CallID separado.)
+    const callId = String(data.ServiceCallID);
+    return { success: true, folio: callId, sapId: callId, callId };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus||502, error: e.message };
   }
@@ -128,13 +124,15 @@ async function consultarTicket(p) {
   if (!p?.sapId) return { success: false, errorCode: 400, error: 'sapId requerido.' };
   try {
     const data = await withRetry(() => sapRequest('GET', `/ServiceCalls(${encodeURIComponent(p.sapId)})`), 'consultarTicket');
+    const callId = String(data.ServiceCallID);
     return {
       success: true,
       status:        STATUS_BY_ID[String(data.Status)] || String(data.Status),
       resolution:    data.Resolution || null,
       infoPendiente: data.U_InfoPendienteCliente || null,
-      folio:         folio(data.DocNum),
-      sapId:         String(data.ServiceCallID),
+      folio:         callId,
+      sapId:         callId,
+      callId,
     };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus||502, error: e.message };
