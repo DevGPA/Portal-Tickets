@@ -12,6 +12,7 @@
 //   "verificarCliente" → GET  /BusinessPartners('{cardCode}')
 
 const { sapRequest, withRetry, SapError } = require('./sap-session');
+const { getPrioridad } = require('./prioridad_map');  // mapa itemCode → prioridad SAP
 
 const TIPO_LABEL = { gar: 'Garantía', dev: 'Devolución', at: 'Apoyo Técnico' };
 
@@ -79,6 +80,9 @@ async function crearTicket(p) {
         CallType:       mapCallType(p.tipoTicket, p.tipoGarantia),
         // U_Factura = No. de Factura capturado en el portal (punto 4)
         U_Factura:      p.numeroFactura,
+        // Priority = mapa desde Excel de datos maestros del artículo
+        // En NetSuite este dato vendrá directamente del maestro del artículo
+        ...(getPrioridad(p.codigoProducto) ? { Priority: getPrioridad(p.codigoProducto) } : {}),
 
         // ── UDFs GPA — confirmar nombres exactos con el admin SAP ───────────
         U_GPA_TipoSolicitud:  p.tipoTicket,

@@ -539,7 +539,6 @@ const FAMILIAS={
     {nombre:"Factura",tipo:"file1",gar:"O",dev:"O",at:"O"},
     {nombre:"Video de la instalación y cuarto de máquinas",tipo:"file3",gar:"O",dev:"N/A",at:"O"},
     {nombre:"Fotos del producto",tipo:"file3",gar:"O",dev:"N/A",at:"O"},
-    {nombre:"Foto del producto en buen estado",tipo:"file3",gar:"N/A",dev:"OJ",at:"N/A"},
     {nombre:"Foto de la etiqueta con lote, código y/o número de serie",tipo:"file3",gar:"OJ",dev:"N/A",at:"OJ"},
   ]},
 };
@@ -613,7 +612,19 @@ function renderStep1(){
   GPA se reserva el derecho de atender y de hacerse responsable por cualquier producto enviado a las instalaciones de GPA sin la previa autorización del departamento de Postventa. Es indispensable que antes de enviar un equipo, el departamento de Postventa evalúe el caso de acuerdo a las evidencias solicitadas a continuación y/o posteriores a este formulario.
 </div><div class="type-grid">${TICKET_TYPES.map(t=>`<button class="type-btn" onclick="selectTipo('${t.id}')"><div class="type-icon">${t.icon}</div><div class="type-name">${t.name}</div><div class="type-desc">${t.desc}</div></button>`).join("")}</div></div>`;
 }
-function selectTipo(id){state.tipo=id;state.familia=null;state.marcaFiltro=null;state.uploads={};state.step=2;render();}
+function selectTipo(id){
+  state.tipo=id;
+  state.familia=null;
+  state.marcaFiltro=null;
+  state.uploads={};
+  state.step=2;
+  render();
+  // Si ya hay un artículo seleccionado, re-asignar la familia para el nuevo tipo
+  // (las familias válidas cambian según Garantía/Devolución/Apoyo Técnico)
+  if(state.itemCode){
+    setTimeout(()=>seleccionarArticulo(state.itemCode), 50);
+  }
+}
 function renderStep2(){
   const isDev=state.tipo==="dev";
   return`<div class="card">
@@ -1685,6 +1696,14 @@ function getStatusInfo(ticket) {
   const res = (ticket.resolution || ticket.sap_resolution || '').trim();
   const inf = (ticket.info_pendiente || ticket.sap_info_pendiente || '').trim();
 
+  // ── OSCL,resolution tiene prioridad sobre cualquier status ────────────────
+  // Si hay contenido en resolution, siempre se muestra ese contenido al cliente
+  // independientemente de lo que diga OSCL,status.
+  if (res) return {
+    clase:'cerrado', badge:'badge-cerrado', badgeText:'Resuelto',
+    texto: res,
+  };
+
   // ── Estatus con mensaje fijo ────────────────────────────────────────────────
   if (s === 'Abierto') return {
     clase:'abierto', badge:'badge-abierto', badgeText:'Recibido',
@@ -1826,9 +1845,10 @@ function renderConsultaShell(loading) {
 }
 
 function renderTicketCard(ticket) {
+  const si  = getStatusInfo(ticket);
   const tipo = ticket.tipo_ticket || '';
-  const folio = ticket.call_id || ticket.folio_sap || ticket.id?.slice(0,8).toUpperCase() || '—';
-  return `<div class="ticket-card" onclick="abrirDetalle('${ticket.id}')">
+  const folio = ticket.folio_sap || ticket.id?.slice(0,8).toUpperCase() || '—';
+  return `<div class="ticket-card status-${si.clase}" onclick="abrirDetalle('${ticket.id}')">
     <div class="ticket-info">
       <div class="ticket-folio">${folio}</div>
       <div class="ticket-meta">${ticket.familia || ''} · Fac. ${ticket.numero_factura || ''}</div>
@@ -1836,8 +1856,8 @@ function renderTicketCard(ticket) {
     </div>
     <div class="ticket-right">
       <span class="ticket-tipo ${TIPO_CLASE_MAP[tipo]||''}">${TIPO_LABEL_MAP[tipo]||tipo}</span>
+      <span class="ticket-status-badge ${si.badge}">${si.badgeText}</span>
       <span class="ticket-fecha">${formatFecha(ticket.creado_en)}</span>
-      <span style="font-size:11px;color:var(--gris-txt)">Ver estado →</span>
     </div>
   </div>`;
 }
