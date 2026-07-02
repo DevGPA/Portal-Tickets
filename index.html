@@ -1256,7 +1256,7 @@ const FAMILIA_MAP_AT  = {"101": "Filtros", "102": "Filtros", "103": "Filtros", "
 
 function resolverFamilia(itmsGrpCod, tipo) {
   if (itmsGrpCod == null) return 'Otros Productos';
-  const cod  = Number(itmsGrpCod);
+  const cod  = String(Number(itmsGrpCod)); // normalizar a string para que coincida con las claves del mapa
   const mapa = (tipo || state.tipo) === 'gar' ? FAMILIA_MAP_GAR
              : (tipo || state.tipo) === 'dev' ? FAMILIA_MAP_DEV
              : (tipo || state.tipo) === 'at'  ? FAMILIA_MAP_AT : {};
