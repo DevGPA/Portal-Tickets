@@ -539,6 +539,7 @@ const FAMILIAS={
     {nombre:"Factura",tipo:"file1",gar:"O",dev:"O",at:"O"},
     {nombre:"Video de la instalación y cuarto de máquinas",tipo:"file3",gar:"O",dev:"N/A",at:"O"},
     {nombre:"Fotos del producto",tipo:"file3",gar:"O",dev:"N/A",at:"O"},
+    {nombre:"Foto del producto en buen estado",tipo:"file3",gar:"N/A",dev:"OJ",at:"N/A"},
     {nombre:"Foto de la etiqueta con lote, código y/o número de serie",tipo:"file3",gar:"OJ",dev:"N/A",at:"OJ"},
   ]},
 };
@@ -612,19 +613,7 @@ function renderStep1(){
   GPA se reserva el derecho de atender y de hacerse responsable por cualquier producto enviado a las instalaciones de GPA sin la previa autorización del departamento de Postventa. Es indispensable que antes de enviar un equipo, el departamento de Postventa evalúe el caso de acuerdo a las evidencias solicitadas a continuación y/o posteriores a este formulario.
 </div><div class="type-grid">${TICKET_TYPES.map(t=>`<button class="type-btn" onclick="selectTipo('${t.id}')"><div class="type-icon">${t.icon}</div><div class="type-name">${t.name}</div><div class="type-desc">${t.desc}</div></button>`).join("")}</div></div>`;
 }
-function selectTipo(id){
-  state.tipo=id;
-  state.familia=null;
-  state.marcaFiltro=null;
-  state.uploads={};
-  state.step=2;
-  render();
-  // Si ya hay un artículo seleccionado, re-asignar la familia para el nuevo tipo
-  // (las familias válidas cambian según Garantía/Devolución/Apoyo Técnico)
-  if(state.itemCode){
-    setTimeout(()=>seleccionarArticulo(state.itemCode), 50);
-  }
-}
+function selectTipo(id){state.tipo=id;state.familia=null;state.marcaFiltro=null;state.uploads={};state.step=2;render();}
 function renderStep2(){
   const isDev=state.tipo==="dev";
   return`<div class="card">
@@ -1258,47 +1247,20 @@ async function buscarArticulosFactura() {
 
 // Mapa ItmsGrpCod → nombre de familia tal cual viene de SAP (OITB).
 // Se llena en tiempo real desde GET /sap/familias al iniciar sesión.
-let FAMILIA_ITMSGRP_MAP = {};
+// Mapa EXACTO ItmsGrpCod → familia del portal por tipo de ticket.
+// Generado desde: Familias_de_ERP_a_Portal_de_Tickets.xlsx
+// Pendiente: cod 104 (Sistemas Filtración) y 145 (Bombas Sumergibles) → lógica compleja
+const FAMILIA_MAP_GAR = {"101": "Filtros", "102": "Otros Productos", "103": "Otros Productos", "104": "Otros Productos", "105": "Bombas p/Filtros", "106": "Bombas p/Filtros", "107": "Reflectores/Iluminac", "108": "Otros Productos", "109": "Otros Productos", "110": "Otros Productos", "111": "Calentadores de Gas/Calderas", "112": "Otros Productos", "113": "Otros Productos", "114": "Otros Productos", "115": "Otros Productos", "116": "Otros Productos", "117": "Generadores Cloro / Ozonificadores", "118": "Otros Productos", "119": "Otros Productos", "120": "Otros Productos", "121": "Cubiertas Automáticas", "122": "Mosaico/Recubrimientos", "123": "Otros Productos", "124": "Otros Productos", "125": "Otros Productos", "126": "Otros Productos", "128": "Otros Productos", "129": "Automatización", "130": "Otros Productos", "132": "Otros Productos", "134": "Bombas de Calor", "135": "Otros Productos", "136": "Otros Productos", "139": "Otros Productos", "140": "Otros Productos", "141": "Otros Productos", "145": "Otros Productos", "146": "Otros Productos", "147": "Otros Productos", "150": "Otros Productos", "156": "Otros Productos", "157": "Otros Productos", "158": "Otros Productos", "159": "Otros Productos", "160": "Otros Productos", "163": "Otros Productos", "164": "Otros Productos", "165": "Otros Productos", "166": "Otros Productos", "167": "Otros Productos", "168": "Otros Productos", "169": "Otros Productos", "170": "Otros Productos", "171": "Otros Productos", "172": "Otros Productos", "173": "Otros Productos", "174": "Otros Productos", "175": "Otros Productos", "176": "Otros Productos", "177": "Otros Productos", "178": "Otros Productos", "179": "Otros Productos", "180": "Otros Productos", "181": "Otros Productos", "182": "Otros Productos", "183": "Otros Productos", "184": "Otros Productos", "185": "Otros Productos", "186": "Otros Productos", "187": "Otros Productos", "188": "Otros Productos", "189": "Otros Productos", "190": "Otros Productos", "191": "Otros Productos", "192": "Otros Productos", "193": "Otros Productos", "194": "Otros Productos", "195": "Otros Productos", "196": "Otros Productos", "197": "Otros Productos", "198": "Otros Productos", "199": "Otros Productos", "200": "Otros Productos", "201": "Otros Productos", "202": "Otros Productos", "203": "Otros Productos", "204": "Otros Productos", "205": "Otros Productos", "206": "Otros Productos", "207": "Otros Productos", "208": "Otros Productos", "209": "Otros Productos", "210": "Otros Productos", "211": "Otros Productos", "212": "Otros Productos", "213": "Otros Productos", "214": "Otros Productos", "218": "Otros Productos", "219": "Otros Productos", "221": "Cubiertas Solares / De Burbujas", "222": "Generadores Cloro / Ozonificadores", "223": "Otros Productos", "226": "Adhesivos", "227": "Otros Productos", "229": "Otros Productos", "230": "Otros Productos", "231": "Otros Productos", "232": "Otros Productos", "233": "Otros Productos", "234": "Otros Productos", "235": "Otros Productos", "236": "Otros Productos", "237": "Otros Productos", "238": "Otros Productos", "240": "Otros Productos", "241": "Otros Productos", "242": "Otros Productos", "243": "Otros Productos", "244": "Otros Productos", "245": "Otros Productos", "246": "Otros Productos", "247": "Otros Productos", "248": "Otros Productos", "250": "Otros Productos", "251": "Otros Productos", "253": "Otros Productos", "254": "Otros Productos", "255": "Otros Productos", "256": "Otros Productos", "257": "Otros Productos", "258": "Otros Productos", "259": "Otros Productos", "260": "Otros Productos", "261": "Otros Productos", "262": "Otros Productos", "263": "Otros Productos", "264": "Otros Productos", "265": "Otros Productos", "266": "Otros Productos", "267": "Otros Productos", "268": "Otros Productos", "269": "Otros Productos", "270": "Otros Productos", "271": "Otros Productos", "272": "Otros Productos", "273": "Otros Productos", "274": "Otros Productos", "275": "Otros Productos", "276": "Otros Productos", "277": "Otros Productos", "278": "Otros Productos", "279": "Otros Productos", "280": "Otros Productos", "281": "Otros Productos", "282": "Otros Productos", "283": "Otros Productos", "284": "Otros Productos", "285": "Otros Productos", "286": "Otros Productos", "287": "Otros Productos", "288": "Otros Productos", "289": "Otros Productos", "292": "Automatización", "293": "Generadores Cloro / Ozonificadores"};
+const FAMILIA_MAP_DEV = {"101": "Filtros", "102": "Filtros", "103": "Filtros", "104": "Filtros", "105": "Bombas p/Filtros", "106": "Bombas p/Filtros", "107": "Reflectores/Iluminac", "108": "Otros Productos", "109": "Otros Productos", "110": "Otros Productos", "111": "Calentadores de Gas/Calderas", "112": "Otros Productos", "113": "Otros Productos", "114": "Otros Productos", "115": "Otros Productos", "116": "Otros Productos", "117": "Generadores Cloro / Ozonificadores", "118": "Otros Productos", "119": "Otros Productos", "120": "Otros Productos", "121": "Otros Productos", "122": "Mosaico/Recubrimientos", "123": "Otros Productos", "124": "Otros Productos", "125": "Otros Productos", "126": "Otros Productos", "128": "Otros Productos", "129": "Automatización", "130": "Otros Productos", "132": "Otros Productos", "134": "Bombas de Calor", "135": "Otros Productos", "136": "Otros Productos", "139": "Otros Productos", "140": "Otros Productos", "141": "Otros Productos", "145": "Otros Productos", "146": "Otros Productos", "147": "Otros Productos", "150": "Otros Productos", "156": "Otros Productos", "157": "Otros Productos", "158": "Otros Productos", "159": "Otros Productos", "160": "Otros Productos", "163": "Otros Productos", "164": "Otros Productos", "165": "Otros Productos", "166": "Otros Productos", "167": "Otros Productos", "168": "Otros Productos", "169": "Otros Productos", "170": "Otros Productos", "171": "Otros Productos", "172": "Otros Productos", "173": "Otros Productos", "174": "Otros Productos", "175": "Otros Productos", "176": "Otros Productos", "177": "Otros Productos", "178": "Otros Productos", "179": "Otros Productos", "180": "Otros Productos", "181": "Otros Productos", "182": "Otros Productos", "183": "Otros Productos", "184": "Otros Productos", "185": "Otros Productos", "186": "Otros Productos", "187": "Otros Productos", "188": "Otros Productos", "189": "Otros Productos", "190": "Otros Productos", "191": "Otros Productos", "192": "Otros Productos", "193": "Otros Productos", "194": "Otros Productos", "195": "Otros Productos", "196": "Otros Productos", "197": "Otros Productos", "198": "Otros Productos", "199": "Otros Productos", "200": "Otros Productos", "201": "Otros Productos", "202": "Otros Productos", "203": "Otros Productos", "204": "Otros Productos", "205": "Otros Productos", "206": "Otros Productos", "207": "Otros Productos", "208": "Otros Productos", "209": "Otros Productos", "210": "Otros Productos", "211": "Otros Productos", "212": "Otros Productos", "213": "Otros Productos", "214": "Otros Productos", "218": "Otros Productos", "219": "Otros Productos", "221": "Cubiertas Solares / De Burbujas", "222": "Generadores Cloro / Ozonificadores", "223": "Otros Productos", "226": "Adhesivos", "227": "Otros Productos", "229": "Otros Productos", "230": "Otros Productos", "231": "Otros Productos", "232": "Otros Productos", "233": "Otros Productos", "234": "Otros Productos", "235": "Otros Productos", "236": "Otros Productos", "237": "Otros Productos", "238": "Otros Productos", "240": "Otros Productos", "241": "Otros Productos", "242": "Otros Productos", "243": "Otros Productos", "244": "Otros Productos", "245": "Otros Productos", "246": "Otros Productos", "247": "Otros Productos", "248": "Otros Productos", "250": "Otros Productos", "251": "Otros Productos", "253": "Otros Productos", "254": "Otros Productos", "255": "Otros Productos", "256": "Otros Productos", "257": "Otros Productos", "258": "Otros Productos", "259": "Otros Productos", "260": "Otros Productos", "261": "Otros Productos", "262": "Otros Productos", "263": "Otros Productos", "264": "Otros Productos", "265": "Otros Productos", "266": "Otros Productos", "267": "Otros Productos", "268": "Otros Productos", "269": "Otros Productos", "270": "Otros Productos", "271": "Otros Productos", "272": "Otros Productos", "273": "Otros Productos", "274": "Otros Productos", "275": "Otros Productos", "276": "Otros Productos", "277": "Otros Productos", "278": "Otros Productos", "279": "Otros Productos", "280": "Otros Productos", "281": "Otros Productos", "282": "Otros Productos", "283": "Otros Productos", "284": "Otros Productos", "285": "Otros Productos", "286": "Otros Productos", "287": "Otros Productos", "288": "Otros Productos", "289": "Otros Productos", "292": "Automatización", "293": "Generadores Cloro / Ozonificadores"};
+const FAMILIA_MAP_AT  = {"101": "Filtros", "102": "Filtros", "103": "Filtros", "104": "Bombas p/Filtros", "105": "Bombas p/Filtros", "106": "Bombas p/Filtros", "107": "Otros Productos", "108": "Otros Productos", "109": "Otros Productos", "110": "Fibra Óptica Constelación", "111": "Calentadores de Gas/Calderas", "112": "Otros Productos", "113": "Otros Productos", "114": "Otros Productos", "115": "Otros Productos", "116": "Otros Productos", "117": "Generadores Cloro / Ozonificadores", "118": "Otros Productos", "119": "Otros Productos", "120": "Otros Productos", "121": "Cubiertas Automáticas", "122": "Mosaico/Recubrimientos", "123": "Otros Productos", "124": "Otros Productos", "125": "Otros Productos", "126": "Otros Productos", "128": "Otros Productos", "129": "Automatización", "130": "Otros Productos", "132": "Otros Productos", "134": "Bombas de Calor", "135": "Otros Productos", "136": "Otros Productos", "139": "Otros Productos", "140": "Otros Productos", "141": "Otros Productos", "145": "Otros Productos", "146": "Otros Productos", "147": "Otros Productos", "150": "Otros Productos", "156": "Otros Productos", "157": "Otros Productos", "158": "Otros Productos", "159": "Otros Productos", "160": "Otros Productos", "163": "Otros Productos", "164": "Otros Productos", "165": "Otros Productos", "166": "Otros Productos", "167": "Otros Productos", "168": "Otros Productos", "169": "Otros Productos", "170": "Otros Productos", "171": "Otros Productos", "172": "Otros Productos", "173": "Otros Productos", "174": "Otros Productos", "175": "Otros Productos", "176": "Otros Productos", "177": "Otros Productos", "178": "Otros Productos", "179": "Otros Productos", "180": "Otros Productos", "181": "Otros Productos", "182": "Otros Productos", "183": "Otros Productos", "184": "Otros Productos", "185": "Otros Productos", "186": "Otros Productos", "187": "Otros Productos", "188": "Otros Productos", "189": "Otros Productos", "190": "Otros Productos", "191": "Otros Productos", "192": "Otros Productos", "193": "Otros Productos", "194": "Otros Productos", "195": "Otros Productos", "196": "Otros Productos", "197": "Otros Productos", "198": "Otros Productos", "199": "Otros Productos", "200": "Otros Productos", "201": "Otros Productos", "202": "Otros Productos", "203": "Otros Productos", "204": "Otros Productos", "205": "Otros Productos", "206": "Otros Productos", "207": "Otros Productos", "208": "Otros Productos", "209": "Otros Productos", "210": "Otros Productos", "211": "Otros Productos", "212": "Otros Productos", "213": "Otros Productos", "214": "Otros Productos", "218": "Otros Productos", "219": "Otros Productos", "221": "Otros Productos", "222": "Generadores Cloro / Ozonificadores", "223": "Otros Productos", "226": "Adhesivos", "227": "Otros Productos", "229": "Otros Productos", "230": "Otros Productos", "231": "Otros Productos", "232": "Otros Productos", "233": "Otros Productos", "234": "Otros Productos", "235": "Otros Productos", "236": "Otros Productos", "237": "Otros Productos", "238": "Otros Productos", "240": "Otros Productos", "241": "Otros Productos", "242": "Otros Productos", "243": "Otros Productos", "244": "Otros Productos", "245": "Otros Productos", "246": "Otros Productos", "247": "Otros Productos", "248": "Otros Productos", "250": "Otros Productos", "251": "Otros Productos", "253": "Otros Productos", "254": "Otros Productos", "255": "Otros Productos", "256": "Otros Productos", "257": "Otros Productos", "258": "Otros Productos", "259": "Otros Productos", "260": "Otros Productos", "261": "Otros Productos", "262": "Otros Productos", "263": "Otros Productos", "264": "Otros Productos", "265": "Otros Productos", "266": "Otros Productos", "267": "Otros Productos", "268": "Otros Productos", "269": "Otros Productos", "270": "Otros Productos", "271": "Otros Productos", "272": "Otros Productos", "273": "Otros Productos", "274": "Otros Productos", "275": "Otros Productos", "276": "Otros Productos", "277": "Otros Productos", "278": "Otros Productos", "279": "Otros Productos", "280": "Otros Productos", "281": "Otros Productos", "282": "Otros Productos", "283": "Otros Productos", "284": "Otros Productos", "285": "Otros Productos", "286": "Otros Productos", "287": "Otros Productos", "288": "Otros Productos", "289": "Otros Productos", "292": "Automatización", "293": "Generadores Cloro / Ozonificadores"};
 
-// ── Coincidencia flexible SAP ↔ portal ───────────────────────────────────────
-// Los nombres de familia capturados en SAP pueden variar ligeramente respecto
-// a los del portal (acentos, abreviaciones, orden de palabras). En vez de exigir
-// texto idéntico, normalizamos y buscamos contención parcial en ambos sentidos.
-function normalizarTexto(s) {
-  return (s || '')
-    .toString()
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
-    .replace(/[^a-z0-9\s]/g, ' ')                      // quita / , . etc → espacio
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// Lista oficial de familias del portal (las que tienen evidencias propias en FAMILIAS).
-const FAMILIAS_PORTAL = Object.keys(FAMILIAS).filter(f => f !== 'Otros Productos');
-
-// Empareja el nombre que viene de SAP contra el catálogo de familias del portal.
-// Devuelve el nombre EXACTO del portal (clave de FAMILIAS) o null si no hay match.
-function emparejarFamiliaSAP(nombreSAP) {
-  const n = normalizarTexto(nombreSAP);
-  if (!n) return null;
-  for (const fPortal of FAMILIAS_PORTAL) {
-    const fNorm = normalizarTexto(fPortal);
-    if (n === fNorm || n.includes(fNorm) || fNorm.includes(n)) return fPortal;
-    // Coincidencia por palabras clave compartidas (ej. "reflectores iluminac" vs "reflectores iluminacion")
-    const wordsSAP = n.split(' ').filter(w => w.length > 3);
-    const wordsPortal = fNorm.split(' ').filter(w => w.length > 3);
-    const compartidas = wordsSAP.filter(w => wordsPortal.some(wp => wp.startsWith(w) || w.startsWith(wp)));
-    if (compartidas.length && compartidas.length >= Math.min(wordsSAP.length, wordsPortal.length)) return fPortal;
-  }
-  return null;
-}
-
-function resolverFamilia(itmsGrpCod) {
-  if (!itmsGrpCod) return 'Otros Productos';
-  const nombreSAP = FAMILIA_ITMSGRP_MAP[itmsGrpCod];
-  if (!nombreSAP) return 'Otros Productos';
-  return emparejarFamiliaSAP(nombreSAP) || 'Otros Productos';
+function resolverFamilia(itmsGrpCod, tipo) {
+  if (itmsGrpCod == null) return 'Otros Productos';
+  const cod  = Number(itmsGrpCod);
+  const mapa = (tipo || state.tipo) === 'gar' ? FAMILIA_MAP_GAR
+             : (tipo || state.tipo) === 'dev' ? FAMILIA_MAP_DEV
+             : (tipo || state.tipo) === 'at'  ? FAMILIA_MAP_AT : {};
+  return mapa[cod] || 'Otros Productos';
 }
 
 // ── Familias válidas por tipo de ticket ───────────────────────────────────────
@@ -1334,25 +1296,8 @@ function familiaValidaParaTipo(familia, tipo) {
 // Carga el catálogo real de familias desde SAP (OITB) vía el backend.
 // Se llama una vez al iniciar sesión — el resultado se cachea en memoria
 // durante toda la sesión del portal.
-async function cargarFamiliasMap() {
-  if (!API_BASE) return; // En modo demo no hay backend que consultar
-  try {
-    const res = await fetch(API_BASE + '/sap/familias', { headers: authHeaders() });
-    if (!res.ok) { console.warn('[Portal] No se pudo cargar /sap/familias:', res.status); return; }
-    const data = await res.json();
-    if (!data.success || !Array.isArray(data.familias)) return;
-
-    const mapa = {};
-    data.familias.forEach(f => {
-      // itmsGrpCod = Number en SAP (OITB,ItmsGrpCod) — clave de lookup
-      // descripcion = U_Descripcion si existe, si no GroupName — texto tal cual SAP
-      if (f.itmsGrpCod != null) mapa[f.itmsGrpCod] = f.descripcion || f.groupName;
-    });
-    FAMILIA_ITMSGRP_MAP = mapa;
-  } catch(e) {
-    console.warn('[Portal] Error cargando familias de SAP:', e.message);
-  }
-}
+// cargarFamiliasMap eliminada — el mapa exacto de familias ya está embebido
+// directamente en FAMILIA_MAP_GAR/DEV/AT generado desde el Excel de datos maestros.
 
 function seleccionarArticulo(itemCode) {
   if (!itemCode) {
@@ -1372,12 +1317,9 @@ function seleccionarArticulo(itemCode) {
   state.producto     = art.itemCode + ' — ' + art.descripcion;
   state.tipoGarantia = art.tipoGarantia || null;
 
-  // Auto-asignar familia desde ItmsGrpCod — el cliente ya no la elige manualmente.
-  // Si la familia resuelta no es válida para ESTE tipo de ticket, cae a Otros Productos.
-  let familiaResuelta = resolverFamilia(art.itmsGrpCod);
-  if (familiaResuelta !== 'Otros Productos' && !familiaValidaParaTipo(familiaResuelta, state.tipo)) {
-    familiaResuelta = 'Otros Productos';
-  }
+  // Auto-asignar familia desde ItmsGrpCod usando el mapa exacto por tipo de ticket.
+  // El mapa ya devuelve 'Otros Productos' si el grupo no aplica para este tipo.
+  const familiaResuelta = resolverFamilia(art.itmsGrpCod, state.tipo);
   state.familia = familiaResuelta;
   clearErr('e_producto');
   clearErr('e_familia');
@@ -1662,8 +1604,7 @@ function showApp() {
       nameEl.textContent = (currentUser.nombreEmpresa || currentUser.email || '') + rol;
     }
   }
-  // Catálogo real de familias (OITB) — una sola vez por sesión, en segundo plano
-  cargarFamiliasMap();
+  // Catálogo de familias ya está embebido en FAMILIA_MAP_GAR/DEV/AT — no hay que cargar nada
 }
 
 // Arrancar verificando sesión al cargar
@@ -1695,14 +1636,6 @@ function getStatusInfo(ticket) {
   const s   = (ticket.sap_status || ticket.estado || '').trim();
   const res = (ticket.resolution || ticket.sap_resolution || '').trim();
   const inf = (ticket.info_pendiente || ticket.sap_info_pendiente || '').trim();
-
-  // ── OSCL,resolution tiene prioridad sobre cualquier status ────────────────
-  // Si hay contenido en resolution, siempre se muestra ese contenido al cliente
-  // independientemente de lo que diga OSCL,status.
-  if (res) return {
-    clase:'cerrado', badge:'badge-cerrado', badgeText:'Resuelto',
-    texto: res,
-  };
 
   // ── Estatus con mensaje fijo ────────────────────────────────────────────────
   if (s === 'Abierto') return {
