@@ -224,31 +224,75 @@ async function enviarCorreos(ticketId, b, folio) {
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST, port: parseInt(process.env.SMTP_PORT), secure: false,
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
-    // Cotas para que un host SMTP inalcanzable (p. ej. placeholder) no cuelgue
-    // el flujo síncrono de creación del ticket.
     connectionTimeout: 7000, greetingTimeout: 7000, socketTimeout: 7000,
   });
+
   const tipo = TIPO_LABEL[b.tipoTicket] || b.tipoTicket;
 
-  // Confirmación al distribuidor
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM, to: b.emailContacto,
-    subject: `GPA Postventa — Solicitud recibida · ${folio}`,
-    html: `<p>Hola <strong>${b.nombreContacto}</strong>,</p>
-           <p>Tu solicitud fue recibida. Folio: <strong>${folio}</strong></p>
-           <p>Tipo: ${tipo} · Familia: ${b.familia} · Factura: ${b.numeroFactura}</p>
-           <p>Postventa se pondrá en contacto contigo. Dudas: <strong>800 APOYO GPA</strong></p>`,
-  }).catch(err => console.error('[email] confirmación:', err.message));
+  // Remitente según tipo de ticket:
+  // Devolución → devoluciones@gpa.com.mx
+  // Garantía / Apoyo Técnico → atencion.clientes@gpa.com.mx
+  const from = b.tipoTicket === 'dev'
+    ? 'GPA Devoluciones <devoluciones@gpa.com.mx>'
+    : 'GPA Atención a Clientes <atencion.clientes@gpa.com.mx>';
 
-  // Notificación a Postventa
+  // Destinatarios:
+  // - To: correos del cliente (los que puso en el portal)
+  // - Cc: postventa@gpa.com.mx (siempre)
+  const toCliente = [b.emailContacto, b.email2, b.email3].filter(Boolean).join(', ');
+
+  const subject = `Tu solicitud de ${tipo} fue registrada - #${folio}`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+      <div style="background:#003D7A;padding:20px 28px">
+        <h2 style="color:white;margin:0;font-size:18px">General de Productos para el Agua</h2>
+        <p style="color:#AEC9E8;margin:4px 0 0;font-size:13px">Portal de Postventa</p>
+      </div>
+      <div style="padding:24px 28px;border:1px solid #DDE4EE;border-top:none">
+        <p style="font-size:15px">Hola <strong>${b.nombreContacto}</strong>,</p>
+        <p>Tu solicitud ha sido recibida por el equipo de Postventa de GPA. A continuación los datos registrados:</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
+          <tr style="background:#F1F5F9">
+            <td style="padding:8px 12px;font-weight:700;width:40%">No. de Ticket</td>
+            <td style="padding:8px 12px"><strong style="color:#003D7A;font-size:16px">${folio}</strong></td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px;font-weight:700;border-top:1px solid #E2E8F0">Tipo de solicitud</td>
+            <td style="padding:8px 12px;border-top:1px solid #E2E8F0">${tipo}</td>
+          </tr>
+          <tr style="background:#F1F5F9">
+            <td style="padding:8px 12px;font-weight:700">Familia</td>
+            <td style="padding:8px 12px">${b.familia}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px;font-weight:700;border-top:1px solid #E2E8F0">No. de Factura</td>
+            <td style="padding:8px 12px;border-top:1px solid #E2E8F0">${b.numeroFactura}</td>
+          </tr>
+          <tr style="background:#F1F5F9">
+            <td style="padding:8px 12px;font-weight:700">Producto</td>
+            <td style="padding:8px 12px">${b.codigoProducto}</td>
+          </tr>
+        </table>
+        <p style="font-size:13px;color:#475569">
+          Una persona del equipo de Postventa se pondrá en contacto contigo para validar
+          que la información enviada esté completa.<br><br>
+          ¿Tienes dudas? Llámanos al <strong>800 APOYO GPA (800 276 9647)</strong>
+        </p>
+      </div>
+      <div style="padding:12px 28px;background:#F8FAFC;font-size:11px;color:#94A3B8;border:1px solid #DDE4EE;border-top:none">
+        Este correo fue generado automáticamente por el Portal de Postventa GPA.
+      </div>
+    </div>`;
+
+  // Un solo envío — todos reciben el mismo correo
   await transporter.sendMail({
-    from: process.env.EMAIL_FROM, to: process.env.EMAIL_POSTVENTA,
-    subject: `[NUEVO TICKET] ${tipo} · ${b.nombreContacto} · ${b.familia} · ${folio}`,
-    html: `<p>Ticket ID: ${ticketId}</p><p>Folio SAP: <strong>${folio}</strong></p>
-           <p>Tipo: ${tipo} · Familia: ${b.familia} · Factura: ${b.numeroFactura}</p>
-           <p>Contacto: ${b.nombreContacto} · ${b.telefono} · ${b.emailContacto}</p>
-           <p>Descripción: ${b.descripcion}</p>`,
-  }).catch(err => console.error('[email] postventa:', err.message));
+    from,
+    to:      toCliente,
+    cc:      'postventa@gpa.com.mx',
+    subject,
+    html,
+  }).catch(err => console.error('[email] envío falló:', err.message));
 }
 
 // ── GET /tickets ──────────────────────────────────────────────────────────────
