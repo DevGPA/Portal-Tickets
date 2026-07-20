@@ -211,6 +211,36 @@ async function buscarFacturas(p) {
   }
 }
 
+// ── Listado de facturas del cliente ────────────────────────────────────────────
+// Devuelve las últimas N facturas del cliente (por fecha desc). Payload: { cardCode, top }
+// Respuesta: { success, cardCode, count, facturas: [{ docNum, fecha, total, moneda }] }
+async function listarFacturas(p) {
+  if (!p?.cardCode) return { success: false, errorCode: 400, error: 'cardCode requerido.' };
+  const top = Math.min(Math.max(parseInt(p.top || '100', 10) || 100, 1), 100);
+  const filter = `CardCode eq '${encodeURIComponent(p.cardCode)}'`;
+  // El Service Layer pagina de 20 en 20; se sigue @odata.nextLink hasta el tope.
+  let path = `/Invoices?$filter=${filter}&$select=DocNum,DocDate,DocTotal,DocCurrency&$orderby=DocDate desc,DocNum desc`;
+  const facturas = [];
+  try {
+    for (let i = 0; i < 10 && path && facturas.length < top; i++) {
+      const data = await withRetry(() => sapRequest('GET', path), 'listarFacturas');
+      for (const f of (data?.value || [])) {
+        facturas.push({
+          docNum: String(f.DocNum),
+          fecha:  f.DocDate ? f.DocDate.substring(0, 10) : null,
+          total:  f.DocTotal,
+          moneda: f.DocCurrency || 'MXN',
+        });
+      }
+      const next = data['@odata.nextLink'] || data['odata.nextLink'];
+      path = next ? (next.startsWith('/') ? next : '/' + next) : null;
+    }
+    return { success: true, cardCode: p.cardCode, count: Math.min(facturas.length, top), facturas: facturas.slice(0, top) };
+  } catch (e) {
+    return { success: false, errorCode: e.sapStatus || 502, error: e.message };
+  }
+}
+
 // ── Artículos de una factura ─────────────────────────────────────────────────
 // Busca la factura (DocNum) del cliente (CardCode) y devuelve sus líneas con
 // código, descripción, U_TipoGarantia y cantidad.
@@ -294,6 +324,7 @@ exports.handler = async (event) => {
     case 'verificarCliente':         return verificarCliente(event.payload);
     case 'obtenerCliente':           return obtenerCliente(event.payload);
     case 'buscarFacturas':           return buscarFacturas(event.payload);
+    case 'listarFacturas':           return listarFacturas(event.payload);
     case 'obtenerArticulosFactura':  return obtenerArticulosFactura(event.payload);
     case 'obtenerFamilias':          return obtenerFamilias();
     default: return { success: false, errorCode: 400, error: `Acción desconocida: "${event.action}"` };
