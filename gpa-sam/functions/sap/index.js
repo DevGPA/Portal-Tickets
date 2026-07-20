@@ -150,6 +150,35 @@ async function verificarCliente(p) {
   }
 }
 
+// ── Datos del cliente (BusinessPartner) ─────────────────────────────────────────
+// Devuelve los campos del maestro de clientes en SAP para sincronizar el perfil
+// del usuario del portal. Payload: { cardCode }
+// Respuesta: { success, cardCode, cardName, salesPersonCode, groupCode, ...udfs }
+async function obtenerCliente(p) {
+  if (!p?.cardCode) return { success: false, errorCode: 400, error: 'cardCode requerido.' };
+  try {
+    const bp = await sapRequest('GET', `/BusinessPartners('${encodeURIComponent(p.cardCode)}')`);
+    const udfs = Object.fromEntries(
+      Object.entries(bp).filter(([k]) => k.startsWith('U_') && bp[k] != null)
+    );
+    return {
+      success: true,
+      cardCode:        bp.CardCode,
+      cardName:        bp.CardName,
+      salesPersonCode: bp.SalesPersonCode ?? null,
+      groupCode:       bp.GroupCode ?? null,
+      federalTaxID:    bp.FederalTaxID ?? null,
+      email:           bp.EmailAddress ?? null,
+      phone:           bp.Phone1 ?? null,
+      valid:           bp.Valid ?? null,
+      udfs,
+    };
+  } catch (e) {
+    if (e.sapStatus === 404) return { success: false, errorCode: 404, error: `Cliente ${p.cardCode} no existe en SAP.` };
+    return { success: false, errorCode: e.sapStatus || 502, error: e.message };
+  }
+}
+
 // ── Autocompletado de facturas ─────────────────────────────────────────────────
 // Busca facturas del cliente cuyo DocNum contenga el texto escrito.
 // Payload: { cardCode, query }
@@ -263,6 +292,7 @@ exports.handler = async (event) => {
     case 'crearTicket':              return crearTicket(event.payload);
     case 'consultarTicket':          return consultarTicket(event.payload);
     case 'verificarCliente':         return verificarCliente(event.payload);
+    case 'obtenerCliente':           return obtenerCliente(event.payload);
     case 'buscarFacturas':           return buscarFacturas(event.payload);
     case 'obtenerArticulosFactura':  return obtenerArticulosFactura(event.payload);
     case 'obtenerFamilias':          return obtenerFamilias();
