@@ -1712,6 +1712,13 @@ function getStatusInfo(ticket) {
   const res = (ticket.resolution || ticket.sap_resolution || '').trim();
   const inf = (ticket.info_pendiente || ticket.sap_info_pendiente || '').trim();
 
+  // ── OSCL,resolution tiene prioridad absoluta sobre cualquier status ──────────
+  // Si hay contenido en resolution, se muestra siempre sin importar el status.
+  if (res) return {
+    clase:'cerrado', badge:'badge-cerrado', badgeText:'Resuelto',
+    texto: res,
+  };
+
   // ── Estatus con mensaje fijo ────────────────────────────────────────────────
   if (s === 'Abierto') return {
     clase:'abierto', badge:'badge-abierto', badgeText:'Recibido',
@@ -1735,13 +1742,6 @@ function getStatusInfo(ticket) {
   if (EN_REVISION.includes(s)) return {
     clase:'proceso', badge:'badge-proceso', badgeText:'En revisión',
     texto:'El equipo de Postventa ya está revisando la validez de la garantía.',
-  };
-
-  // ── Cierre Cliente y cualquier otro: siempre muestra OSCL,resolution ───────
-  // "Cierre Cliente" solo se usa cuando hay resolution — es la fuente de verdad del dictamen
-  if (res) return {
-    clase:'cerrado', badge:'badge-cerrado', badgeText:'Resuelto',
-    texto: res,
   };
 
   // ── Fallback — sin resolution ni status conocido ───────────────────────────
