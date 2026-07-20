@@ -145,10 +145,11 @@ async function consultarTicket(p) {
     // status se regresa TAL CUAL viene de SAP (ej. "Abierto", "Cliente Pendientes",
     // "Proceso Técnico", "NC GPA-Cliente Pend") — el portal hace el mapeo a frases
     // amigables comparando estos strings literales, no se traduce aquí.
+    // SAP Service Layer usa PascalCase: Status, Resolution, U_InfoPendienteCliente
     return ok({
-      status:        data.status,
-      resolution:    data.resolution || null,
-      infoPendiente: data.U_InfoPendienteCliente || null,
+      status:        data.Status        || data.status        || null,
+      resolution:    data.Resolution    || data.resolution    || null,
+      infoPendiente: data.U_InfoPendienteCliente              || null,
       folio:         callId || String(data.DocEntry),
       callId,
       sapId:         String(data.DocEntry),
