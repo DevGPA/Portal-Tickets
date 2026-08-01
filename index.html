@@ -219,9 +219,19 @@ input[type=file]{display:none}
 .badge-cerrado{background:#F1F5F9;color:#475569}
 .badge-generico{background:#E0F2FE;color:#0C4A6E}
 
+/* ── Lista de facturas ───────────────────────────────────────────────────────── */
+.factura-list{display:flex;flex-direction:column;gap:8px}
+.factura-row{background:white;border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:12px 18px;border-left:4px solid var(--azul-med);display:flex;align-items:center;justify-content:space-between;gap:16px}
+.factura-row-num{font-family:'Montserrat',sans-serif;font-size:14px;font-weight:700;color:var(--azul)}
+.factura-row-fecha{font-size:12px;color:var(--gris-txt);margin-top:2px}
+.factura-row-total{font-family:'Montserrat',sans-serif;font-size:14px;font-weight:700;color:var(--negro);text-align:right;white-space:nowrap}
+.factura-row-moneda{font-size:11px;font-weight:600;color:var(--gris-txt);margin-left:4px}
+
 /* ── Filtros de búsqueda ─────────────────────────────────────────────────────── */
 .filtros-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
-.filtro-select{padding:8px 12px;border:1.5px solid var(--gris-brd);border-radius:var(--radius-sm);font-family:'Inter',sans-serif;font-size:13px;color:var(--negro);background:white;outline:none;cursor:pointer}
+/* width:auto y flex:0 0 auto para vencer la regla global de `select{width:100%}`,
+   que si no lo empuja a su propio renglón dentro de .filtros-bar */
+.filtro-select{width:auto;flex:0 0 auto;padding:8px 12px;border:1.5px solid var(--gris-brd);border-radius:var(--radius-sm);font-family:'Inter',sans-serif;font-size:13px;color:var(--negro);background:white;outline:none;cursor:pointer}
 .filtro-select:focus{border-color:var(--azul-med)}
 .filtro-search{flex:1;min-width:180px;padding:8px 12px;border:1.5px solid var(--gris-brd);border-radius:var(--radius-sm);font-family:'Inter',sans-serif;font-size:13px;outline:none}
 .filtro-search:focus{border-color:var(--azul-med)}
@@ -330,9 +340,14 @@ input[type=file]{display:none}
     <button class="nav-tab" id="tabConsulta" onclick="switchTab('consulta')">
       <span class="tab-icon">🔍</span> Mis Tickets
     </button>
+    <button class="nav-tab" id="tabFacturas" onclick="switchTab('facturas')">
+      <span class="tab-icon">📄</span> Mis Facturas
+    </button>
   </div>
   <!-- Contenedor de consulta de tickets -->
   <div id="portalConsulta" style="display:none"></div>
+  <!-- Contenedor de facturas -->
+  <div id="portalFacturas" style="display:none"></div>
   <!-- Contenedor del portal de apertura -->
   <div id="portalTicket">
   <div class="steps">
@@ -1761,15 +1776,18 @@ function formatFecha(iso) {
 
 // ── Cambio de pestaña ─────────────────────────────────────────────────────────
 function switchTab(tab) {
-  document.getElementById('tabTicket').classList.toggle('active', tab === 'ticket');
+  document.getElementById('tabTicket').classList.toggle('active',   tab === 'ticket');
   document.getElementById('tabConsulta').classList.toggle('active', tab === 'consulta');
+  document.getElementById('tabFacturas').classList.toggle('active', tab === 'facturas');
   document.getElementById('portalTicket').style.display   = tab === 'ticket'   ? 'block' : 'none';
   document.getElementById('portalConsulta').style.display = tab === 'consulta' ? 'block' : 'none';
+  document.getElementById('portalFacturas').style.display = tab === 'facturas' ? 'block' : 'none';
   if (tab === 'consulta') {
     // Reset consulta state so it loads fresh
     consultaState.ticketDetalle = null;
     cargarTickets(1);
   }
+  if (tab === 'facturas') cargarFacturas();
 }
 
 // ── Cargar lista de tickets ───────────────────────────────────────────────────
@@ -1875,6 +1893,133 @@ function renderPaginacion() {
     <button class="pag-btn" onclick="cargarTickets(${page-1})" ${page<=1?'disabled':''}>← Anterior</button>
     <span class="pag-info">Página ${page} de ${totalPages}</span>
     <button class="pag-btn" onclick="cargarTickets(${page+1})" ${page>=totalPages?'disabled':''}>Siguiente →</button>
+  </div>`;
+}
+
+// ── MIS FACTURAS ──────────────────────────────────────────────────────────────
+// Últimas N facturas del cliente desde SAP (GET /sap/listar-facturas?top=N).
+// El cardCode lo resuelve el backend a partir del JWT.
+
+let facturasState = {
+  facturas: [],
+  top:      10,
+  filtro:   '',
+  cargando: false,
+  error:    null,
+};
+
+async function cargarFacturas() {
+  if (facturasState.cargando) return;
+  facturasState.cargando = true;
+  facturasState.error    = null;
+
+  const el = document.getElementById('portalFacturas');
+  el.innerHTML = renderFacturasShell(true);
+
+  try {
+    if (API_BASE) {
+      const res = await fetch(API_BASE + '/sap/listar-facturas?top=' + facturasState.top, {
+        credentials: 'include', headers: authHeaders(),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `No se pudieron cargar las facturas (HTTP ${res.status}).`);
+      }
+      const data = await res.json();
+      facturasState.facturas = data.facturas || [];
+    } else {
+      // Demo sin backend
+      facturasState.facturas = getDemoFacturas('').slice(0, facturasState.top);
+    }
+  } catch(e) {
+    facturasState.facturas = [];
+    facturasState.error    = e.message || 'Error al cargar las facturas.';
+  }
+
+  facturasState.cargando = false;
+  el.innerHTML = renderFacturasShell(false);
+}
+
+// Cambia el tope y recarga desde SAP
+function cambiarTopFacturas(top) {
+  facturasState.top = parseInt(top, 10) || 10;
+  cargarFacturas();
+}
+
+// Filtra por substring de DocNum sobre lo ya cargado (sin volver a SAP).
+// Solo repinta la lista para no perder el foco del input en cada tecla.
+function filtrarFacturas(val) {
+  facturasState.filtro = (val || '').trim();
+  const wrap = document.getElementById('facturaListWrap');
+  if (wrap) wrap.innerHTML = renderFacturasLista(false);
+}
+
+function renderFacturasShell(loading) {
+  return `<div class="card">
+    <div class="card-title">📄 Mis Facturas</div>
+    <div class="card-desc">Tus facturas más recientes registradas en GPA, de la más nueva a la más antigua.</div>
+    <div class="filtros-bar">
+      <input class="filtro-search" type="text" id="facturaFiltro" placeholder="Filtrar por número de factura…"
+        value="${facturasState.filtro}" oninput="filtrarFacturas(this.value)" style="flex:1"/>
+      <select class="filtro-select" onchange="cambiarTopFacturas(this.value)">
+        ${[10, 25, 50, 100].map(n =>
+          `<option value="${n}" ${facturasState.top === n ? 'selected' : ''}>Últimas ${n}</option>`).join('')}
+      </select>
+      <button class="btn btn-secondary" style="padding:8px 16px;font-size:13px" onclick="cargarFacturas()">↻ Actualizar</button>
+    </div>
+    <div id="facturaListWrap">${renderFacturasLista(loading)}</div>
+  </div>`;
+}
+
+function renderFacturasLista(loading) {
+  const visibles = facturasState.filtro
+    ? facturasState.facturas.filter(f => String(f.docNum).includes(facturasState.filtro))
+    : facturasState.facturas;
+
+  if (loading) {
+    return `<div style="text-align:center;padding:40px;color:var(--gris-txt);">⏳ Cargando facturas…</div>`;
+  }
+  if (facturasState.error) {
+    return `<div class="alert alert-error"><span class="alert-icon">⚠️</span><span>${facturasState.error}</span></div>
+      <div style="text-align:center;margin-top:16px">
+        <button class="btn btn-secondary" style="padding:8px 16px;font-size:13px" onclick="cargarFacturas()">Reintentar</button>
+      </div>`;
+  }
+  if (!visibles.length) {
+    return `<div class="empty-state">
+        <div class="empty-icon">📄</div>
+        <div class="empty-title">${facturasState.filtro ? 'Ninguna factura coincide' : 'No encontramos facturas'}</div>
+        <div class="empty-desc">${facturasState.filtro
+          ? 'Prueba con otro número de factura o limpia el filtro.'
+          : 'Aún no hay facturas registradas a tu nombre en SAP.'}</div>
+      </div>`;
+  }
+  return `<div class="factura-list">${visibles.map(renderFacturaRow).join('')}</div>
+    <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--gris-txt)">
+      Mostrando ${visibles.length} de ${facturasState.facturas.length} factura${facturasState.facturas.length === 1 ? '' : 's'}
+    </div>`;
+}
+
+// SAP manda la fecha sin hora ("2026-07-31"); new Date() la lee como UTC y
+// formatFecha() restaría un día en husos negativos, así que se arma local.
+function formatFechaFactura(f) {
+  if (!f) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(f);
+  if (!m) return formatFecha(f);
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  return d.toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' });
+}
+
+function renderFacturaRow(f) {
+  const total = typeof f.total === 'number'
+    ? f.total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '—';
+  return `<div class="factura-row">
+    <div>
+      <div class="factura-row-num">${f.docNum}</div>
+      <div class="factura-row-fecha">${formatFechaFactura(f.fecha)}</div>
+    </div>
+    <div class="factura-row-total">${total}<span class="factura-row-moneda">${f.moneda || ''}</span></div>
   </div>`;
 }
 
