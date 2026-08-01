@@ -2,7 +2,7 @@
   "name": "gpa-dependencies-layer",
   "version": "1.0.0",
   "description": "Dependencias compartidas — todas las Lambdas de GPA Postventa",
-  "comment_aws_sdk": "Los paquetes @aws-sdk/* NO se incluyen aquí: el runtime nodejs20.x de Lambda ya trae el AWS SDK v3 integrado. Incluirlos rompía el empaquetado en Windows por rutas demasiado largas.",
+  "comment_aws_sdk": "Los paquetes @aws-sdk/* NO se incluyen aquí: el runtime nodejs24.x de Lambda ya trae el AWS SDK v3 integrado. Incluirlos rompía el empaquetado en Windows por rutas demasiado largas.",
   "dependencies": {
     "bcryptjs":   "^2.4.3",
     "jsonwebtoken": "^9.0.0",
