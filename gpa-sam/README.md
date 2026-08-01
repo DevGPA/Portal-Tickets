@@ -11,7 +11,7 @@ gpa-sam/
 │   │   ├── db.js              ← Pool Aurora (compartido)
 │   │   └── helpers.js         ← Respuestas HTTP + auth JWT
 │   ├── auth/index.js          ← login | logout | me | recover | reset-password
-│   ├── tickets/index.js       ← tickets CRUD + /sap/buscar-facturas + /sap/articulos-factura
+│   ├── tickets/index.js       ← tickets CRUD + /sap/buscar-facturas + /sap/listar-facturas + /sap/articulos-factura
 │   ├── upload/index.js        ← POST /upload/presigned-url | POST /upload/confirm
 │   └── sap/index.js           ← Lambda interna SAP (sin API Gateway)
 └── frontend/
@@ -171,6 +171,7 @@ sam logs -n SapFunction --stack-name gpa-postventa --tail
 | GET | /tickets/{id} | TicketsFunction | JWT |
 | GET | /tickets/{id}/evidencias/{key}/url | TicketsFunction | JWT |
 | POST | /sap/buscar-facturas | TicketsFunction | JWT |
+| GET | /sap/listar-facturas | TicketsFunction | JWT |
 | POST | /sap/articulos-factura | TicketsFunction | JWT |
 | POST | /upload/presigned-url | UploadFunction | JWT |
 | POST | /upload/confirm | UploadFunction | JWT |

@@ -3,6 +3,7 @@
 // GET  /tickets                          → listar tickets del distribuidor
 // GET  /tickets/{id}                     → detalle + evidencias
 // GET  /tickets/{id}/evidencias/{key}/url → URL firmada S3
+// GET  /sap/listar-facturas              → últimas N facturas del cliente
 
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const { S3Client, GetObjectCommand }  = require('@aws-sdk/client-s3');
@@ -24,6 +25,8 @@ exports.handler = async (event) => {
   try {
     // POST /sap/buscar-facturas
     if (method === 'POST' && path.endsWith('/sap/buscar-facturas'))    return buscarFacturas(event);
+    // GET  /sap/listar-facturas
+    if (method === 'GET'  && path.endsWith('/sap/listar-facturas'))    return listarFacturas(event);
     // POST /sap/articulos-factura
     if (method === 'POST' && path.endsWith('/sap/articulos-factura'))  return articulosFactura(event);
     // GET  /sap/familias
@@ -79,6 +82,22 @@ async function buscarFacturas(event) {
   if (!cardCode) return unauthorized();
 
   const data = await invokeSAP('buscarFacturas', { cardCode, query: String(query).trim() });
+  return ok(data);
+}
+
+// ── GET /sap/listar-facturas ──────────────────────────────────────────────────
+// Últimas facturas del cliente autenticado (fecha desc). Query: ?top=10 (1-100)
+async function listarFacturas(event) {
+  const { payload, response } = requireAuth(event);
+  if (response) return response;
+
+  const q   = event.queryStringParameters || {};
+  const top = Math.min(100, Math.max(1, parseInt(q.top || '10', 10) || 10));
+
+  const cardCode = await getCardCode(payload.sub);
+  if (!cardCode) return unauthorized();
+
+  const data = await invokeSAP('listarFacturas', { cardCode, top });
   return ok(data);
 }
 

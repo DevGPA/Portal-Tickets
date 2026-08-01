@@ -205,6 +205,11 @@ Resources:
           Properties:
             Path: /sap/buscar-facturas
             Method: POST
+        ListarFacturas:
+          Type: Api
+          Properties:
+            Path: /sap/listar-facturas
+            Method: GET
         ArticulosFactura:
           Type: Api
           Properties:
