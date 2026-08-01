@@ -40,11 +40,11 @@ async function getSession() {
   return _cookie;
 }
 
-async function sapRequest(method, path, body) {
+async function sapRequest(method, path, body, extraHeaders) {
   const session = await getSession();
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', Cookie: `B1SESSION=${session}` },
+    headers: { 'Content-Type': 'application/json', Cookie: `B1SESSION=${session}`, ...(extraHeaders || {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
     timeout: 15_000,
     agent: sapAgent,
@@ -179,6 +179,36 @@ async function obtenerCliente(p) {
   }
 }
 
+// ── Facturas: recorrido paginado compartido ────────────────────────────────────
+// El Service Layer pagina de 20 en 20, así que se sigue @odata.nextLink.
+// Se ordena por DocDate desc (no por DocNum) porque un cliente puede tener
+// varias series de DocNum vivas a la vez —HI003 factura en 103xxxxx y en
+// 300xxxxx— y ordenar por número agrupa una serie completa antes de la otra.
+// `onPagina` recibe cada página y devuelve true para cortar antes de maxPaginas.
+// Prefer:odata.maxpagesize sube el tamaño de página del Service Layer (20 por
+// defecto) y es la vía documentada para hacerlo. Se prefiere sobre $top: la
+// consulta anterior de buscarFacturas usaba "$orderby=DocNum desc&$top=50" y
+// este servidor le respondía 200 con value vacío.
+const PAGE_SIZE = { Prefer: 'odata.maxpagesize=100' };
+
+async function paginarFacturas(cardCode, label, maxPaginas, onPagina) {
+  const filter = `CardCode eq '${encodeURIComponent(cardCode)}'`;
+  let path = `/Invoices?$filter=${filter}&$select=DocNum,DocDate,DocTotal,DocCurrency&$orderby=DocDate desc,DocNum desc`;
+  for (let i = 0; i < maxPaginas && path; i++) {
+    const data = await withRetry(() => sapRequest('GET', path, null, PAGE_SIZE), label);
+    if (onPagina(data?.value || [])) return;
+    const next = data['@odata.nextLink'] || data['odata.nextLink'];
+    path = next ? (next.startsWith('/') ? next : '/' + next) : null;
+  }
+}
+
+const mapFactura = (f) => ({
+  docNum: String(f.DocNum),
+  fecha:  f.DocDate ? f.DocDate.substring(0, 10) : null,
+  total:  f.DocTotal,
+  moneda: f.DocCurrency || 'MXN',
+});
+
 // ── Autocompletado de facturas ─────────────────────────────────────────────────
 // Busca facturas del cliente cuyo DocNum contenga el texto escrito.
 // Payload: { cardCode, query }
@@ -188,23 +218,35 @@ async function buscarFacturas(p) {
   if (!p?.query || p.query.trim().length < 2) return { success: true, facturas: [] };
 
   const q = p.query.trim();
-  // SAP B1 Service Layer no soporta cast()/contains() sobre DocNum (numérico),
-  // así que se traen las facturas recientes del cliente y se filtra el substring
-  // por DocNum en JS.
-  const filter = `CardCode eq '${encodeURIComponent(p.cardCode)}'`;
-  const path   = `/Invoices?$filter=${filter}&$select=DocNum,DocDate,DocTotal,DocCurrency&$orderby=DocNum desc&$top=50`;
-
+  // El Service Layer no soporta cast()/contains() sobre DocNum (numérico), así
+  // que se recorren las facturas recientes y se filtra el substring en JS.
+  // Corta en cuanto junta 10 coincidencias para no castigar la latencia.
+  const facturas = [];
   try {
-    const data = await withRetry(() => sapRequest('GET', path), 'buscarFacturas');
-    const facturas = (data?.value || [])
-      .filter(f => String(f.DocNum).includes(q))
-      .slice(0, 10)
-      .map(f => ({
-        docNum: String(f.DocNum),
-        fecha:  f.DocDate ? f.DocDate.substring(0, 10) : null,
-        total:  f.DocTotal,
-        moneda: f.DocCurrency || 'MXN',
-      }));
+    // Atajo para el caso común: el usuario pega el DocNum completo. Un `eq`
+    // directo lo resuelve en una sola petición; sin esto, una coincidencia
+    // única obliga a recorrer todas las páginas (era el peor caso, ~7 s).
+    // q está validado como solo dígitos, así que interpolarlo es seguro.
+    if (/^\d{6,}$/.test(q)) {
+      const fEx = `CardCode eq '${encodeURIComponent(p.cardCode)}' and DocNum eq ${q}`;
+      const dEx = await withRetry(
+        () => sapRequest('GET', `/Invoices?$filter=${fEx}&$select=DocNum,DocDate,DocTotal,DocCurrency`),
+        'buscarFacturas:exacto');
+      const exacta = (dEx?.value || []).map(mapFactura);
+      if (exacta.length) return { success: true, facturas: exacta };
+    }
+
+    // 3 páginas = 300 facturas recientes. Acota el peor caso (query sin
+    // coincidencias, que se dispara en cada tecla) a ~1 s en lugar de ~4 s;
+    // un DocNum completo se encuentra igual por el atajo `eq` de arriba,
+    // sin importar su antigüedad.
+    await paginarFacturas(p.cardCode, 'buscarFacturas', 3, (pagina) => {
+      for (const f of pagina) {
+        if (String(f.DocNum).includes(q)) facturas.push(mapFactura(f));
+        if (facturas.length >= 10) return true;
+      }
+      return false;
+    });
     return { success: true, facturas };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus || 502, error: e.message };
@@ -217,24 +259,12 @@ async function buscarFacturas(p) {
 async function listarFacturas(p) {
   if (!p?.cardCode) return { success: false, errorCode: 400, error: 'cardCode requerido.' };
   const top = Math.min(Math.max(parseInt(p.top || '100', 10) || 100, 1), 100);
-  const filter = `CardCode eq '${encodeURIComponent(p.cardCode)}'`;
-  // El Service Layer pagina de 20 en 20; se sigue @odata.nextLink hasta el tope.
-  let path = `/Invoices?$filter=${filter}&$select=DocNum,DocDate,DocTotal,DocCurrency&$orderby=DocDate desc,DocNum desc`;
   const facturas = [];
   try {
-    for (let i = 0; i < 10 && path && facturas.length < top; i++) {
-      const data = await withRetry(() => sapRequest('GET', path), 'listarFacturas');
-      for (const f of (data?.value || [])) {
-        facturas.push({
-          docNum: String(f.DocNum),
-          fecha:  f.DocDate ? f.DocDate.substring(0, 10) : null,
-          total:  f.DocTotal,
-          moneda: f.DocCurrency || 'MXN',
-        });
-      }
-      const next = data['@odata.nextLink'] || data['odata.nextLink'];
-      path = next ? (next.startsWith('/') ? next : '/' + next) : null;
-    }
+    await paginarFacturas(p.cardCode, 'listarFacturas', 10, (pagina) => {
+      for (const f of pagina) facturas.push(mapFactura(f));
+      return facturas.length >= top;
+    });
     return { success: true, cardCode: p.cardCode, count: Math.min(facturas.length, top), facturas: facturas.slice(0, top) };
   } catch (e) {
     return { success: false, errorCode: e.sapStatus || 502, error: e.message };
