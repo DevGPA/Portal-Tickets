@@ -222,8 +222,14 @@ async function obtenerArticulo(p) {
 function mapCallType(tipoTicket, tipoGarantia) {
   if (tipoTicket === 'dev') return 'DEVOLUCION';
   if (tipoTicket === 'at')  return 'APOYO TECNICO';
-  // Garantía: usar el valor EXACTO que viene de OITM,U_TipoGarantia (A1/A2/B1/B2)
-  if (tipoTicket === 'gar') return tipoGarantia || 'A1'; // fallback si no llegó
+  if (tipoTicket === 'gar') {
+    // SAP devuelve U_TipoGarantia como "GARANTIA A1", "GARANTIA B2", etc.
+    // OSCL,callType espera solo "A1", "A2", "B1", "B2" — quitamos el prefijo.
+    const clean = (tipoGarantia || '')
+      .replace(/^GARANTIA\s*/i, '')
+      .trim();
+    return clean || 'A1'; // fallback si no llegó
+  }
   return 'APOYO TECNICO';
 }
 
