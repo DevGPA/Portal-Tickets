@@ -72,8 +72,26 @@ async function withRetry(fn, label) {
 // Usuario SAP B1 (Users.InternalKey) al que se asignan los tickets del portal.
 // 184 = usuario 'procesos' (Andres Orozco). Override vía env var SAP_ASSIGNEE_CODE.
 const ASSIGNEE_CODE = parseInt(process.env.SAP_ASSIGNEE_CODE || '184', 10);
-// Tipo de Llamada (CallType) obligatorio en la validación custom de su SAP. 17 = valor en uso.
-const CALL_TYPE = parseInt(process.env.SAP_CALL_TYPE || '17', 10);
+
+// Tipo de Llamada (CallType) obligatorio en la validación custom de su SAP.
+// IDs confirmados desde SELECT * FROM OSCT en SAP B1:
+//   16 = GARANTIA A1 | 17 = GARANTIA B1 | 18 = GARANTIA A2 | 19 = GARANTIA B2
+//   20 = DEVOLUCION  | 21 = APOYO TECNICO
+function mapCallType(tipoTicket, tipoGarantia) {
+  if (tipoTicket === 'dev') return 20;
+  if (tipoTicket === 'at')  return 21;
+  if (tipoTicket === 'gar') {
+    // U_TipoGarantia viene de SAP como "GARANTIA A1", "GARANTIA B2", etc.
+    // o a veces solo "A1", "B2" — normalizamos quitando el prefijo.
+    const clean = (tipoGarantia || '')
+      .replace(/^GARANTIA\s*/i, '')
+      .trim()
+      .toUpperCase();
+    const map = { A1: 16, A2: 18, B1: 17, B2: 19 };
+    return map[clean] || 16; // fallback A1 si no reconoce el valor
+  }
+  return 21; // fallback general
+}
 
 const TIPO_LABEL = { gar: 'Garantía', dev: 'Devolución', at: 'Apoyo Técnico' };
 // El ServiceCall trae Status como StatusId numérico (OSCS). Se mapea al nombre
@@ -102,7 +120,7 @@ async function crearTicket(p) {
       CustomerCode: p.sapClienteId,
       AssigneeCode: ASSIGNEE_CODE,
       ItemCode: p.codigoProducto,       // obligatorio (SysGPA-191-02: "campo Artículo")
-      CallType: CALL_TYPE,              // obligatorio (SysGPA-191-03: "Tipo de Llamada")
+      CallType: mapCallType(p.tipoTicket, p.tipoGarantia), // obligatorio (SysGPA-191-03: "Tipo de Llamada")
       U_TicketUsr: 'CLIENTE',           // obligatorio ("Usuario Ticket")
       U_Factura: p.numeroFactura,       // No. de factura capturado en el portal
       Subject: String(p.descripcion || '').slice(0, 100),
