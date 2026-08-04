@@ -218,19 +218,24 @@ async function obtenerArticulo(p) {
   }
 }
 
-// ── Mapeo tipoTicket + tipoGarantia → OSCL,callType ─────────────────────────
+// ── Mapeo tipoTicket + tipoGarantia → OSCL,callType (ID numérico de OSCT) ────
+// IDs confirmados desde SELECT * FROM OSCT en SAP B1:
+//   16 = GARANTIA A1 | 17 = GARANTIA B1 | 18 = GARANTIA A2 | 19 = GARANTIA B2
+//   20 = DEVOLUCION  | 21 = APOYO TECNICO
 function mapCallType(tipoTicket, tipoGarantia) {
-  if (tipoTicket === 'dev') return 'DEVOLUCION';
-  if (tipoTicket === 'at')  return 'APOYO TECNICO';
+  if (tipoTicket === 'dev') return 20;
+  if (tipoTicket === 'at')  return 21;
   if (tipoTicket === 'gar') {
-    // SAP devuelve U_TipoGarantia como "GARANTIA A1", "GARANTIA B2", etc.
-    // OSCL,callType espera solo "A1", "A2", "B1", "B2" — quitamos el prefijo.
+    // U_TipoGarantia viene de SAP como "GARANTIA A1", "GARANTIA B2", etc.
+    // o a veces solo "A1", "B2" — normalizamos quitando el prefijo.
     const clean = (tipoGarantia || '')
       .replace(/^GARANTIA\s*/i, '')
-      .trim();
-    return clean || 'A1'; // fallback si no llegó
+      .trim()
+      .toUpperCase();
+    const map = { 'A1': 16, 'A2': 18, 'B1': 17, 'B2': 19 };
+    return map[clean] || 16; // fallback A1 si no reconoce el valor
   }
-  return 'APOYO TECNICO';
+  return 21; // fallback general
 }
 
 // ── OPERACIÓN: obtenerArticulosFactura ────────────────────────────────────────
