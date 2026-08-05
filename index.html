@@ -1740,7 +1740,9 @@ function getStatusInfo(ticket) {
   };
   if (s === 'Cliente Pendiente' || s === 'Cliente Pendientes') return {
     clase:'pendiente', badge:'badge-pendiente', badgeText:'Info pendiente',
-    texto: inf || 'El equipo de Postventa requiere información adicional de tu parte.',
+    texto: inf
+      ? 'El equipo de GPA Postventa está en espera de lo siguiente: ' + inf
+      : 'Hay información pendiente de tu parte.',
   };
   if (s === 'Proceso Técnico') return {
     clase:'proceso', badge:'badge-proceso', badgeText:'En proceso',
