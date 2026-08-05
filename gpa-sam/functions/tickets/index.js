@@ -319,29 +319,36 @@ async function listTickets(event) {
   const { payload, response } = requireAuth(event);
   if (response) return response;
 
-  const q      = event.queryStringParameters || {};
-  const page   = Math.max(1, parseInt(q.page  || '1',  10));
-  const limit  = Math.min(50, parseInt(q.limit || '20', 10));
-  const offset = (page - 1) * limit;
-  const pool   = getPool();
+  const pool = getPool();
 
-  const filters = ['usuario_id = $1'];
-  const params  = [payload.sub];
-  let   idx     = 2;
+  // Opción C: todos los tickets abiertos/en proceso + últimos 5 cerrados.
+  // Un distribuidor raramente tiene más de 20-30 tickets activos,
+  // así que no se necesita paginación para los abiertos.
+  const { rows: data } = await pool.query(`
+    (
+      -- Todos los tickets NO cerrados (pendiente, en proceso, error_sap, creado, etc.)
+      SELECT id, tipo_ticket, familia, numero_factura, codigo_producto,
+             folio_sap, call_id, estado, creado_en
+      FROM tickets
+      WHERE usuario_id = $1
+        AND estado NOT IN ('cerrado', 'rechazado', 'cancelado')
+      ORDER BY creado_en DESC
+    )
+    UNION ALL
+    (
+      -- Solo los últimos 5 cerrados/rechazados
+      SELECT id, tipo_ticket, familia, numero_factura, codigo_producto,
+             folio_sap, call_id, estado, creado_en
+      FROM tickets
+      WHERE usuario_id = $1
+        AND estado IN ('cerrado', 'rechazado', 'cancelado')
+      ORDER BY creado_en DESC
+      LIMIT 5
+    )
+    ORDER BY creado_en DESC
+  `, [payload.sub]);
 
-  if (q.tipo)   { filters.push(`tipo_ticket = $${idx++}`); params.push(q.tipo); }
-  if (q.estado) { filters.push(`estado = $${idx++}`);      params.push(q.estado); }
-
-  const WHERE = filters.join(' AND ');
-  const [{ rows: data }, { rows: [{ total }] }] = await Promise.all([
-    pool.query(`SELECT id,tipo_ticket,familia,numero_factura,codigo_producto,
-                       folio_sap,estado,creado_en FROM tickets WHERE ${WHERE}
-                ORDER BY creado_en DESC LIMIT $${idx} OFFSET $${idx+1}`,
-               [...params, limit, offset]),
-    pool.query(`SELECT COUNT(*) total FROM tickets WHERE ${WHERE}`, params),
-  ]);
-
-  return ok({ data, pagination: { page, limit, total: parseInt(total), pages: Math.ceil(total/limit) } });
+  return ok({ data, total: data.length });
 }
 
 // ── GET /tickets/{id} ─────────────────────────────────────────────────────────

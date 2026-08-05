@@ -1794,7 +1794,7 @@ function switchTab(tab) {
 async function cargarTickets(page = 1) {
   if (consultaState.cargando) return;
   consultaState.cargando = true;
-  consultaState.page = page;
+  consultaState.page = 1; // ya no hay paginación
 
   const el = document.getElementById('portalConsulta');
   el.innerHTML = renderConsultaShell(true); // skeleton loader
@@ -1803,13 +1803,11 @@ async function cargarTickets(page = 1) {
     let tickets = [];
 
     if (API_BASE) {
-      const params = new URLSearchParams({ page, limit: 10 });
-      if (consultaState.filtroTipo)     params.append('tipo',   consultaState.filtroTipo);
-      if (consultaState.filtroBusqueda) params.append('search', consultaState.filtroBusqueda);
-      const res  = await fetch(API_BASE + '/tickets?' + params, { credentials: 'include', headers: authHeaders() });
+      // Sin paginación — el backend ya filtra: todos los abiertos + últimos 5 cerrados
+      const res  = await fetch(API_BASE + '/tickets', { credentials: 'include', headers: authHeaders() });
       const data = await res.json();
       tickets = data.data || [];
-      consultaState.totalPages = data.pagination?.pages || 1;
+      consultaState.totalPages = 1; // sin paginación
     } else {
       // ── DEMO sin backend: tickets de muestra ─────────────────────────────────
       tickets = getDemoTickets();
@@ -1852,7 +1850,10 @@ function renderConsultaShell(loading) {
           <div class="empty-desc">Aún no tienes tickets registrados o no coinciden con los filtros seleccionados.</div>
         </div>`
       : `<div class="ticket-list">${tickets.map(renderTicketCard).join('')}</div>
-         ${consultaState.totalPages > 1 ? renderPaginacion() : ''}`;
+         ${consultaState.totalPages > 1 ? renderPaginacion() : ''}
+         <div style="text-align:center;font-size:12px;color:var(--gris-txt);margin-top:12px;padding:8px">
+           Se muestran todos tus tickets activos y los últimos 5 cerrados.
+         </div>`;
 
   return `<div class="card">
     <div class="card-title">🔍 Mis Tickets</div>
