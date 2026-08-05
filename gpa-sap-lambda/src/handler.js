@@ -66,10 +66,22 @@ async function crearTicket(p) {
   if (missing.length) return error(400, `Campos faltantes: ${missing.join(', ')}.`);
 
   try {
+    // Obtener IndustryC del cliente (OCRD) para llenar NumAtCard en el ticket.
+    // Es best-effort: si falla no bloquea la creación del ticket.
+    let industryC = null;
+    try {
+      const bp = await sapRequest('GET', `/BusinessPartners('${encodeURIComponent(p.sapClienteId)}')?$select=CardCode,IndustryC`);
+      industryC = bp.IndustryC || null;
+    } catch (e) {
+      console.warn('[SAP] No se pudo obtener IndustryC:', e.message);
+    }
+
     const data = await withRetry(() =>
       sapRequest('POST', '/ServiceCalls', {
         // ── Campos estándar SAP B1 ──────────────────────────────────────────
         CardCode:       p.sapClienteId,
+        // NumAtCard = categoría comercial del cliente (OCRD,IndustryC)
+        ...(industryC != null ? { NumAtCard: industryC } : {}),
         // Subject = Descripción del problema capturada por el cliente en el portal (punto 3)
         Subject:        p.descripcion,
         // Description se deja vacío intencionalmente — no debe llevar datos
