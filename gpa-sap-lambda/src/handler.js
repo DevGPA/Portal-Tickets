@@ -235,7 +235,7 @@ async function obtenerArticulo(p) {
 //   16 = GARANTIA A1 | 17 = GARANTIA B1 | 18 = GARANTIA A2 | 19 = GARANTIA B2
 //   20 = DEVOLUCION  | 21 = APOYO TECNICO
 function mapCallType(tipoTicket, tipoGarantia) {
-  if (tipoTicket === 'dev') return 20;
+  if (tipoTicket === 'dev') return 3;  // ID 3 = "Devolución" en OSCT
   if (tipoTicket === 'at')  return 21;
   if (tipoTicket === 'gar') {
     // U_TipoGarantia viene de SAP como "GARANTIA A1", "GARANTIA B2", etc.
