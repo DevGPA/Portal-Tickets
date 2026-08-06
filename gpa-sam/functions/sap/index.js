@@ -76,9 +76,9 @@ const ASSIGNEE_CODE = parseInt(process.env.SAP_ASSIGNEE_CODE || '184', 10);
 // Tipo de Llamada (CallType) obligatorio en la validación custom de su SAP.
 // IDs confirmados desde SELECT * FROM OSCT en SAP B1:
 //   16 = GARANTIA A1 | 17 = GARANTIA B1 | 18 = GARANTIA A2 | 19 = GARANTIA B2
-//   20 = DEVOLUCION  | 21 = APOYO TECNICO
+//   3  = DEVOLUCION  | 21 = APOYO TECNICO
 function mapCallType(tipoTicket, tipoGarantia) {
-  if (tipoTicket === 'dev') return 20;
+  if (tipoTicket === 'dev') return 3;  // ID 3 = "Devolución" en OSCT
   if (tipoTicket === 'at')  return 21;
   if (tipoTicket === 'gar') {
     // U_TipoGarantia viene de SAP como "GARANTIA A1", "GARANTIA B2", etc.
@@ -112,6 +112,16 @@ async function crearTicket(p) {
   if (missing.length) return { success: false, errorCode: 400, error: `Campos faltantes: ${missing.join(', ')}.` };
 
   try {
+    // Obtener IndustryC del cliente (OCRD) para llenar NumAtCard en el ticket.
+    // Es best-effort: si falla no bloquea la creación del ticket.
+    let industryC = null;
+    try {
+      const bp = await sapRequest('GET', `/BusinessPartners('${encodeURIComponent(p.sapClienteId)}')?$select=CardCode,IndustryC`);
+      industryC = bp.IndustryC || null;
+    } catch (e) {
+      console.warn('[SAP] No se pudo obtener IndustryC:', e.message);
+    }
+
     // Subject = descripción del problema capturada por el cliente en el portal.
     // SAP B1 limita OSCL.Subject a 100 chars; el texto completo queda en la BD
     // (tickets.descripcion). Description se deja VACÍO a propósito: Postventa lo
@@ -123,6 +133,8 @@ async function crearTicket(p) {
       CallType: mapCallType(p.tipoTicket, p.tipoGarantia), // obligatorio (SysGPA-191-03: "Tipo de Llamada")
       U_TicketUsr: 'CLIENTE',           // obligatorio ("Usuario Ticket")
       U_Factura: p.numeroFactura,       // No. de factura capturado en el portal
+      // NumAtCard = categoría comercial del cliente (OCRD,IndustryC)
+      ...(industryC != null ? { NumAtCard: industryC } : {}),
       Subject: String(p.descripcion || '').slice(0, 100),
     };
     // TechnicianCode en SAP es numérico; el ejecutivo viene como código ("EV01"),
